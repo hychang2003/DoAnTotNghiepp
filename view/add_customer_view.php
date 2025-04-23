@@ -1,67 +1,9 @@
-<?php
-session_start();
-
-// Kiểm tra trạng thái đăng nhập
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("Location: ../login.php");
-    exit();
-}
-
-// Bao gồm file kết nối cơ sở dữ liệu
-include '../config/db_connect.php';
-
-// Hàm lấy kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-function getShopConnection($host, $username, $password, $shop_db) {
-    $conn = new mysqli($host, $username, $password, $shop_db);
-    if ($conn->connect_error) {
-        die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
-    }
-    return $conn;
-}
-
-// Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
-
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getShopConnection($host, $username, $password, $shop_db);
-
-// Xử lý thêm khách hàng
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_customer'])) {
-    $name = $_POST['name'] ?? '';
-    $phone_number = $_POST['phone_number'] ?? '';
-    $email = $_POST['email'] ?? '';
-    $address = $_POST['address'] ?? '';
-
-    // Kiểm tra dữ liệu đầu vào
-    if (empty($name) || empty($phone_number)) {
-        $error = "Vui lòng nhập đầy đủ thông tin bắt buộc (Tên và Số điện thoại).";
-    } else {
-        // Thêm khách hàng vào cơ sở dữ liệu
-        $sql = "INSERT INTO customer (name, phone_number, email, address) VALUES (?, ?, ?, ?)";
-        $stmt = $conn->prepare($sql);
-        if ($stmt === false) {
-            $error = "Lỗi chuẩn bị truy vấn: " . $conn->error;
-        } else {
-            $stmt->bind_param('ssss', $name, $phone_number, $email, $address);
-            if ($stmt->execute()) {
-                $stmt->close();
-                header("Location: customer.php?customer_added=success");
-                exit();
-            } else {
-                $error = "Lỗi khi thêm khách hàng: " . $stmt->error;
-                $stmt->close();
-            }
-        }
-    }
-}
-?>
-
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thêm khách hàng mới</title>
+    <title>Thêm khách hàng - <?php echo htmlspecialchars($shop_name ?? 'Cửa hàng mặc định'); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -93,12 +35,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_customer'])) {
                 </ul>
             </li>
             <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($role) && $role === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="../view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($role) && $role === 'admin'): ?>
                 <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
@@ -115,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_customer'])) {
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($session_username ?? 'Khách'); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -128,13 +70,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_customer'])) {
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Thêm khách hàng mới</h1>
+            <h1>Thêm khách hàng - Cơ sở: <?php echo htmlspecialchars($shop_name ?? 'Cửa hàng mặc định'); ?></h1>
         </header>
 
         <!-- Thông báo lỗi -->
-        <?php if (isset($error)): ?>
+        <?php if (!empty($errors)): ?>
             <div class="alert alert-danger" role="alert">
-                <?php echo htmlspecialchars($error); ?>
+                <?php foreach ($errors as $error): ?>
+                    <p><?php echo htmlspecialchars($error); ?></p>
+                <?php endforeach; ?>
             </div>
         <?php endif; ?>
 
@@ -144,32 +88,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_customer'])) {
                 <form method="POST" action="">
                     <input type="hidden" name="add_customer" value="1">
                     <div class="mb-3">
-                        <label for="name" class="form-label">Tên khách hàng</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
+                        <label for="name" class="form-label">Tên khách hàng <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="name" name="name" value="<?php echo isset($_POST['name']) ? htmlspecialchars($_POST['name']) : ''; ?>" required>
                     </div>
                     <div class="mb-3">
-                        <label for="phone_number" class="form-label">Số điện thoại</label>
-                        <input type="text" class="form-control" id="phone_number" name="phone_number" required>
+                        <label for="phone_number" class="form-label">Số điện thoại <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="phone_number" name="phone_number" value="<?php echo isset($_POST['phone_number']) ? htmlspecialchars($_POST['phone_number']) : ''; ?>" required>
                     </div>
                     <div class="mb-3">
-                        <label for="email" class="form-label">Email</label>
-                        <input type="email" class="form-control" id="email" name="email">
+                        <label for="email" class="form-label">Email (không bắt buộc)</label>
+                        <input type="email" class="form-control" id="email" name="email" value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>">
                     </div>
                     <div class="mb-3">
-                        <label for="address" class="form-label">Địa chỉ</label>
-                        <textarea class="form-control" id="address" name="address"></textarea>
+                        <label for="address" class="form-label">Địa chỉ (không bắt buộc)</label>
+                        <textarea class="form-control" id="address" name="address"><?php echo isset($_POST['address']) ? htmlspecialchars($_POST['address']) : ''; ?></textarea>
                     </div>
                     <button type="submit" class="btn btn-primary">Thêm khách hàng</button>
+                    <a href="../view/customer.php" class="btn btn-secondary">Quay lại</a>
                 </form>
             </div>
         </div>
     </div>
 </div>
-
-<?php
-// Đóng kết nối
-$conn->close();
-?>
 
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>

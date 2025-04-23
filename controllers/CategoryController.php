@@ -1,7 +1,7 @@
 <?php
 session_start();
 include '../config/db_connect.php';
-include 'CategoryModel.php';
+include '../models/CategoryModel.php';
 
 // Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
@@ -16,17 +16,26 @@ header("Pragma: no-cache");
 // Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Lấy cơ sở hiện tại từ session
+// Khởi tạo các biến mặc định
 $shop_db = $_SESSION['shop_db'] ?? 'shop_1';
-
-// Khởi tạo Model
-$model = new CategoryModel($host, $username, $password, $shop_db);
-$shop_name = $model->getShopName('fashion_shop', $shop_db);
-
-// Xử lý thêm danh mục
+$shop_name = $shop_db; // Giá trị mặc định nếu không lấy được tên cửa hàng
 $errors = [];
 $success = '';
+$role = isset($_SESSION['role']) ? $_SESSION['role'] : ''; // Giá trị mặc định cho role
+$session_username = isset($_SESSION['username']) ? $_SESSION['username'] : 'Khách'; // Tên người dùng ứng dụng
 
+// Khởi tạo Model với thông tin xác thực từ db_connect.php
+$model = new CategoryModel($host, $username, $password, $shop_db);
+
+// Lấy tên cửa hàng
+try {
+    $shop_name = $model->getShopName('fashion_shop', $shop_db);
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
+    $errors[] = "Không thể lấy tên cửa hàng.";
+}
+
+// Xử lý thêm danh mục
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
     $icon = $_FILES['icon'] ?? null;
@@ -42,12 +51,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $icon_path = null;
     if ($icon && $icon['error'] === UPLOAD_ERR_OK) {
         $allowed_types = ['image/png', 'image/jpeg', 'image/gif'];
-        $max_size = 2 * 1024 * 1024; // 2MB
 
         if (!in_array($icon['type'], $allowed_types)) {
             $errors[] = "Icon phải là file PNG, JPEG hoặc GIF.";
-        } elseif ($icon['size'] > $max_size) {
-            $errors[] = "Icon không được lớn hơn 2MB.";
         } else {
             $upload_dir = '../assets/icons/';
             if (!is_dir($upload_dir)) {
@@ -72,7 +78,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($model->addCategory($name, $icon_path)) {
                 $success = "Thêm danh mục thành công.";
             } else {
-                $errors[] = "Lỗi khi thêm danh mục.";
+                $errors[] = "Vui lòng thêm icon.";
             }
         } catch (Exception $e) {
             $errors[] = $e->getMessage();
@@ -84,5 +90,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $model->close();
 
 // Tải View
-include 'add_category_view.php';
+include '../view/add_category_view.php';
 ?>

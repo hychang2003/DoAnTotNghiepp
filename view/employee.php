@@ -152,7 +152,7 @@ if ($result === false) {
 
         <div class="card mt-3">
             <div class="card-body">
-                <a href="add_employee.php" class="btn btn-primary mb-3">Thêm nhân viên mới</a>
+                <a href="../controllers/EmployeeController.php" class="btn btn-primary mb-3">Thêm nhân viên mới</a>
                 <table class="table table-bordered">
                     <thead>
                     <tr>

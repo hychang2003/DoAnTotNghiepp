@@ -25,6 +25,31 @@ $shop_db = $_SESSION['shop_db'] ?? 'shop_1';
 // Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
 $conn = getShopConnection($host, $username, $password, $shop_db);
 
+// Lấy tên cửa hàng từ bảng shop
+$shop_name = $shop_db; // Giá trị mặc định
+try {
+    $conn_main = new mysqli($host, $username, $password, 'fashion_shop');
+    if ($conn_main->connect_error) {
+        throw new Exception("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn_main->connect_error);
+    }
+    $conn_main->set_charset("utf8mb4");
+
+    $sql = "SELECT name FROM shop WHERE db_name = ?";
+    $stmt = $conn_main->prepare($sql);
+    if ($stmt === false) {
+        throw new Exception("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
+    }
+    $stmt->bind_param('s', $shop_db);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    $shop_name = $row['name'] ?? $shop_db;
+    $stmt->close();
+    $conn_main->close();
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
+}
+
 // Truy vấn danh sách khách hàng
 $sql = "SELECT * FROM customer";
 $result = $conn->query($sql);
@@ -38,7 +63,7 @@ if ($result === false) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Danh sách khách hàng</title>
+    <title>Danh sách khách hàng - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -70,12 +95,12 @@ if ($result === false) {
                 </ul>
             </li>
             <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="../view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
@@ -92,7 +117,7 @@ if ($result === false) {
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Khách'); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -105,12 +130,16 @@ if ($result === false) {
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh sách khách hàng</h1>
+            <h1>Danh sách khách hàng - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
+
+        <?php if (isset($_GET['customer_added']) && $_GET['customer_added'] === 'success'): ?>
+            <div class="alert alert-success">Thêm khách hàng thành công!</div>
+        <?php endif; ?>
 
         <div class="card mt-3">
             <div class="card-body">
-                <a href="add_customer.php" class="btn btn-primary mb-3">Thêm khách hàng mới</a>
+                <a href="../controllers/CustomerController.php" class="btn btn-primary mb-3">Thêm khách hàng mới</a>
                 <table class="table table-bordered">
                     <thead>
                     <tr>

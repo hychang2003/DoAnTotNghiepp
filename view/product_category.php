@@ -31,7 +31,7 @@ function getConnection($host, $username, $password, $dbname) {
 $shop_db = $_SESSION['shop_db'] ?? 'shop_1';
 
 // Lấy tên cơ sở từ bảng shop
-$conn_main = getConnection($host, $username, $password, 'fashion_shop'); // Khởi tạo $conn_main
+$conn_main = getConnection($host, $username, $password, 'fashion_shop');
 $sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
 $stmt_shop_name = $conn_main->prepare($sql_shop_name);
 if ($stmt_shop_name === false) {
@@ -170,7 +170,7 @@ $stmt_categories->close();
                         </tbody>
                     </table>
                 <?php endif; ?>
-                <a href="add_category.php" class="btn btn-primary mt-3">Thêm danh mục</a>
+                <a href="../controllers/CategoryController.php" class="btn btn-primary mt-3">Thêm danh mục</a>
             </div>
         </div>
     </div>
