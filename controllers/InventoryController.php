@@ -22,7 +22,7 @@ include_once '../config/db_connect.php';
 include_once '../models/InventoryModel.php';
 
 // Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
 error_log("session_username được gán: " . $session_username);
 
@@ -34,7 +34,7 @@ $tab = isset($_GET['tab']) ? $_GET['tab'] : 'all';
 
 // Lấy tên cơ sở
 try {
-    $shop_name = $model->getShopName('fashion_shop', $shop_db);
+    $shop_name = $model->getShopName('fashion_shopp', $shop_db);
 } catch (Exception $e) {
     error_log("Lỗi khi lấy tên cơ sở: " . $e->getMessage());
     $shop_name = $shop_db;

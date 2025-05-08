@@ -28,10 +28,10 @@ function getConnection($host, $username, $password, $dbname) {
 }
 
 // Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
 // Lấy tên cơ sở từ bảng shop
-$conn_main = getConnection($host, $username, $password, 'fashion_shop');
+$conn_main = getConnection($host, $username, $password, 'fashion_shopp');
 $sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
 $stmt_shop_name = $conn_main->prepare($sql_shop_name);
 if ($stmt_shop_name === false) {

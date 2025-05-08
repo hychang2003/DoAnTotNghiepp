@@ -126,10 +126,6 @@ unset($_SESSION['success']);
                             </select>
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="order_date" class="form-label">Ngày đặt hàng</label>
-                        <input type="datetime-local" class="form-control" id="order_date" name="order_date" required>
-                    </div>
 
                     <!-- Bảng danh sách sản phẩm -->
                     <div class="mb-3">

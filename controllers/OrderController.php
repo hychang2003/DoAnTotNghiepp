@@ -10,6 +10,9 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     exit();
 }
 
+// Thiết lập múi giờ
+date_default_timezone_set('Asia/Ho_Chi_Minh');
+
 // Bao gồm file kết nối cơ sở dữ liệu và model
 include_once '../config/db_connect.php';
 include_once '../models/OrderModel.php';
@@ -30,16 +33,13 @@ if ($action === 'add') {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $customer_id = !empty($_POST['customer_id']) ? intval($_POST['customer_id']) : null;
         $employee_id = !empty($_POST['employee_id']) ? intval($_POST['employee_id']) : null;
-        $order_date = $_POST['order_date'] ?? '';
+        $order_date = date('Y-m-d H:i:s'); // Gán thời gian thực tế
         $total_price = floatval($_POST['total_price_raw'] ?? 0);
         $status = $_POST['status'] ?? 'pending';
         $products = $_POST['products'] ?? [];
 
         // Kiểm tra dữ liệu đầu vào
         $errors = [];
-        if (empty($order_date)) {
-            $errors[] = "Vui lòng nhập ngày đặt hàng!";
-        }
         if ($total_price <= 0) {
             $errors[] = "Tổng tiền phải lớn hơn 0!";
         }
