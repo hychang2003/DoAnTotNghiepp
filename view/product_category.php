@@ -1,69 +1,44 @@
 <?php
-session_start();
+include '../config/session_check.php';
+include '../config/db_connect.php';
+include '../models/CategoryModel.php';
 
-// Kiểm tra trạng thái đăng nhập
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("Location: ../login.php");
-    exit();
-}
+// Debug session
+error_log("product_category.php - Session ID: " . session_id());
+error_log("product_category.php - Logged in: " . (isset($_SESSION['loggedin']) ? 'true' : 'false'));
 
 // Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ cho PHP
+// Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Bao gồm file kết nối cơ sở dữ liệu
-include '../config/db_connect.php';
+// Khởi tạo các biến
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+$session_username = $_SESSION['username'] ?? 'Khách';
 
-// Hàm lấy kết nối đến cơ sở dữ liệu
-function getConnection($host, $username, $password, $dbname) {
-    $conn = new mysqli($host, $username, $password, $dbname);
-    if ($conn->connect_error) {
-        die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
-    }
-    $conn->set_charset("utf8mb4");
-    return $conn;
+// Khởi tạo Model
+$model = new CategoryModel($host, $username, $password, $shop_db);
+
+// Lấy tên cửa hàng
+try {
+    $shop_name = $model->getShopName('fashion_shopp', $shop_db);
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
+    $shop_name = $shop_db;
 }
 
-// Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+// Lấy danh sách danh mục
+try {
+    $categories = $model->getCategories();
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy danh sách danh mục: " . $e->getMessage());
+    $categories = [];
+}
 
-// Lấy tên cơ sở từ bảng shop
-$conn_main = getConnection($host, $username, $password, 'fashion_shop');
-$sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
-$stmt_shop_name = $conn_main->prepare($sql_shop_name);
-if ($stmt_shop_name === false) {
-    die("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
-}
-$stmt_shop_name->bind_param('s', $shop_db);
-$stmt_shop_name->execute();
-$result_shop_name = $stmt_shop_name->get_result();
-$shop_row = $result_shop_name->fetch_assoc();
-$shop_name = $shop_row['name'] ?? $shop_db;
-if (!$shop_row) {
-    error_log("Không tìm thấy name cho db_name = '$shop_db' trong bảng shop.");
-}
-$stmt_shop_name->close();
-$conn_main->close();
-
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getConnection($host, $username, $password, $shop_db);
-
-// Lấy danh sách danh mục sản phẩm
-$sql_categories = "SELECT * FROM `$shop_db`.category ORDER BY name ASC";
-$stmt_categories = $conn->prepare($sql_categories);
-if ($stmt_categories === false) {
-    die("Lỗi chuẩn bị truy vấn danh mục: " . $conn->error);
-}
-$stmt_categories->execute();
-$result_categories = $stmt_categories->get_result();
-$categories = [];
-while ($row = $result_categories->fetch_assoc()) {
-    $categories[] = $row;
-}
-$stmt_categories->close();
+// Đóng kết nối
+$model->close();
 ?>
 
 <!DOCTYPE html>
@@ -89,28 +64,28 @@ $stmt_categories->close();
             <li class="has-dropdown">
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/products_list.php">Danh sách sản phẩm</a></li>
-                    <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
+                    <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
+                    <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/inventory_stock.php">Tồn kho</a></li>
-                    <li><a href="../view/import_goods.php">Nhập hàng</a></li>
-                    <li><a href="../view/export_goods.php">Xuất hàng</a></li>
+                    <li><a href="inventory_stock_view.php">Tồn kho</a></li>
+                    <li><a href="import_goods.php">Nhập hàng</a></li>
+                    <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
             <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="../view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
@@ -125,7 +100,7 @@ $stmt_categories->close();
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -141,6 +116,18 @@ $stmt_categories->close();
             <h1>Danh mục sản phẩm - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
+        <!-- Thông báo -->
+        <?php if (isset($_GET['success'])): ?>
+            <div class="alert alert-success" role="alert">
+                <?php echo htmlspecialchars($_GET['success']); ?>
+            </div>
+        <?php endif; ?>
+        <?php if (isset($_GET['error'])): ?>
+            <div class="alert alert-danger" role="alert">
+                <?php echo htmlspecialchars($_GET['error']); ?>
+            </div>
+        <?php endif; ?>
+
         <!-- Danh sách danh mục -->
         <div class="card mt-3">
             <div class="card-body">
@@ -153,6 +140,7 @@ $stmt_categories->close();
                         <tr>
                             <th>ID</th>
                             <th>Tên danh mục</th>
+                            <th>Icon</th>
                             <th>Hành động</th>
                         </tr>
                         </thead>
@@ -162,26 +150,29 @@ $stmt_categories->close();
                                 <td><?php echo htmlspecialchars($category['id']); ?></td>
                                 <td><?php echo htmlspecialchars($category['name']); ?></td>
                                 <td>
-                                    <a href="update_category.php?id=<?php echo $category['id']; ?>" class="btn btn-sm btn-primary">Sửa</a>
-                                    <a href="delete_category.php?id=<?php echo $category['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa danh mục này?');">Xóa</a>
+                                    <?php if (!empty($category['icon'])): ?>
+                                        <img src="../<?php echo htmlspecialchars($category['icon']); ?>" alt="Icon danh mục" width="50">
+                                    <?php else: ?>
+                                        N/A
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <a href="../controllers/CategoryController.php?action=update&id=<?php echo $category['id']; ?>" class="btn btn-sm btn-primary">Sửa</a>
+                                    <a href="../controllers/CategoryController.php?action=delete&id=<?php echo $category['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa danh mục này?');">Xóa</a>
                                 </td>
                             </tr>
                         <?php endforeach; ?>
                         </tbody>
                     </table>
                 <?php endif; ?>
-                <a href="../controllers/CategoryController.php" class="btn btn-primary mt-3">Thêm danh mục</a>
+                <a href="../controllers/CategoryController.php?action=add" class="btn btn-primary mt-3">Thêm danh mục</a>
             </div>
         </div>
     </div>
 </div>
 
-<?php
-// Đóng kết nối
-$conn->close();
-?>
-
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+?>

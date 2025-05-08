@@ -3,7 +3,7 @@ session_start();
 
 // Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("Location: ../login.php");
+    header("Location: ../login_view.php");
     exit();
 }
 
@@ -21,7 +21,7 @@ function getShopConnection($host, $username, $password, $shop_db) {
 }
 
 // Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
 // Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
 $conn = getShopConnection($host, $username, $password, $shop_db);
@@ -40,10 +40,10 @@ function formatCurrency($number) {
 }
 
 // Truy vấn danh sách hóa đơn
-$sql = "SELECT o.id, o.order_date, o.total_price, o.status, c.name AS customer_name, e.name AS employee_name
+$sql = "SELECT o.id, o.order_date, o.total_price, o.status, c.name AS customer_name, u.username AS user_name
         FROM `order` o
         LEFT JOIN customer c ON o.customer_id = c.id
-        LEFT JOIN employee e ON o.employee_id = e.id";
+        LEFT JOIN users u ON o.employee_id = u.id";
 $result = $conn->query($sql);
 
 // Kiểm tra và cảnh báo nếu tổng tiền không hợp lý
@@ -74,7 +74,7 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
             <li class="has-dropdown">
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/products_list.php">Danh sách sản phẩm</a></li>
+                    <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
                     <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
@@ -82,7 +82,7 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/inventory_stock.php">Tồn kho</a></li>
+                    <li><a href="inventory_stock_view.php">Tồn kho</a></li>
                     <li><a href="../view/import_goods.php">Nhập hàng</a></li>
                     <li><a href="../view/export_goods.php">Xuất hàng</a></li>
                 </ul>
@@ -91,10 +91,10 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
             <?php if ($_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="../view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
@@ -128,14 +128,14 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
 
         <div class="card mt-3">
             <div class="card-body">
-                <a href="add_order.php" class="btn btn-primary mb-3">Thêm hóa đơn mới</a>
+                <a href="../controllers/OrderController.php?action=add" class="btn btn-primary mb-3">Thêm hóa đơn mới</a>
                 <table class="table table-bordered">
                     <thead>
                     <tr>
                         <th>ID</th>
                         <th>Ngày đặt hàng</th>
                         <th>Khách hàng</th>
-                        <th>Nhân viên</th>
+                        <th>Người dùng</th>
                         <th>Tổng tiền (VNĐ)</th>
                         <th>Trạng thái</th>
                         <th>Hành động</th>
@@ -148,7 +148,7 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
                                 <td><?php echo htmlspecialchars($order['id']); ?></td>
                                 <td><?php echo htmlspecialchars($order['order_date']); ?></td>
                                 <td><?php echo htmlspecialchars($order['customer_name'] ?? 'N/A'); ?></td>
-                                <td><?php echo htmlspecialchars($order['employee_name'] ?? 'N/A'); ?></td>
+                                <td><?php echo htmlspecialchars($order['user_name'] ?? 'N/A'); ?></td>
                                 <td>
                                     <?php
                                     $total_price = $order['total_price'];
@@ -173,8 +173,8 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
                                     ?>
                                 </td>
                                 <td>
-                                    <a href="update_order.php?id=<?php echo $order['id']; ?>" class="btn btn-sm btn-primary">Sửa</a>
-                                    <a href="delete_order.php?id=<?php echo $order['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa hóa đơn này?');">Xóa</a>
+                                    <a href="update_order_view.php?id=<?php echo $order['id']; ?>" class="btn btn-sm btn-primary">Sửa</a>
+                                    <a href="../controllers/OrderController.php?action=delete&id=<?php echo $order['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa hóa đơn này?');">Xóa</a>
                                 </td>
                             </tr>
                         <?php endwhile; ?>

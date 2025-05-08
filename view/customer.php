@@ -1,61 +1,40 @@
 <?php
-session_start();
+include_once '../config/session_check.php';
+include_once '../config/db_connect.php';
+include_once '../models/CustomerModel.php';
 
-// Kiểm tra trạng thái đăng nhập
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("Location: ../login.php");
-    exit();
-}
+// Ngăn cache trình duyệt
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
 
-// Bao gồm file kết nối cơ sở dữ liệu
-include '../config/db_connect.php';
+// Thiết lập múi giờ
+date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Hàm lấy kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-function getShopConnection($host, $username, $password, $shop_db) {
-    $conn = new mysqli($host, $username, $password, $shop_db);
-    if ($conn->connect_error) {
-        die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
-    }
-    return $conn;
-}
+// Khởi tạo các biến
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+$session_username = $_SESSION['username'] ?? 'Khách';
 
-// Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+// Khởi tạo Model
+$model = new CustomerModel($host, $username, $password, $shop_db);
 
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getShopConnection($host, $username, $password, $shop_db);
-
-// Lấy tên cửa hàng từ bảng shop
-$shop_name = $shop_db; // Giá trị mặc định
+// Lấy tên cửa hàng
 try {
-    $conn_main = new mysqli($host, $username, $password, 'fashion_shop');
-    if ($conn_main->connect_error) {
-        throw new Exception("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn_main->connect_error);
-    }
-    $conn_main->set_charset("utf8mb4");
-
-    $sql = "SELECT name FROM shop WHERE db_name = ?";
-    $stmt = $conn_main->prepare($sql);
-    if ($stmt === false) {
-        throw new Exception("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
-    }
-    $stmt->bind_param('s', $shop_db);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $row = $result->fetch_assoc();
-    $shop_name = $row['name'] ?? $shop_db;
-    $stmt->close();
-    $conn_main->close();
+    $shop_name = $model->getShopName('fashion_shop', $shop_db);
 } catch (Exception $e) {
     error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
+    $shop_name = $shop_db;
 }
 
-// Truy vấn danh sách khách hàng
-$sql = "SELECT * FROM customer";
-$result = $conn->query($sql);
-if ($result === false) {
-    die("Lỗi truy vấn: " . $conn->error);
+// Lấy danh sách khách hàng
+try {
+    $customers = $model->getCustomers();
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy danh sách khách hàng: " . $e->getMessage());
+    $customers = [];
 }
+
+// Đóng kết nối
+$model->close();
 ?>
 
 <!DOCTYPE html>
@@ -81,28 +60,28 @@ if ($result === false) {
             <li class="has-dropdown">
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/products_list.php">Danh sách sản phẩm</a></li>
-                    <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
+                    <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
+                    <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/inventory_stock.php">Tồn kho</a></li>
-                    <li><a href="../view/import_goods.php">Nhập hàng</a></li>
-                    <li><a href="../view/export_goods.php">Xuất hàng</a></li>
+                    <li><a href="inventory_stock_view.php">Tồn kho</a></li>
+                    <li><a href="import_goods.php">Nhập hàng</a></li>
+                    <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="../view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
@@ -117,7 +96,7 @@ if ($result === false) {
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Khách'); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -133,13 +112,20 @@ if ($result === false) {
             <h1>Danh sách khách hàng - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
+        <!-- Thông báo -->
         <?php if (isset($_GET['customer_added']) && $_GET['customer_added'] === 'success'): ?>
             <div class="alert alert-success">Thêm khách hàng thành công!</div>
+        <?php endif; ?>
+        <?php if (isset($_GET['customer_deleted']) && $_GET['customer_deleted'] === 'success'): ?>
+            <div class="alert alert-success">Xóa khách hàng thành công!</div>
+        <?php endif; ?>
+        <?php if (isset($_GET['error'])): ?>
+            <div class="alert alert-danger"><?php echo htmlspecialchars($_GET['error']); ?></div>
         <?php endif; ?>
 
         <div class="card mt-3">
             <div class="card-body">
-                <a href="../controllers/CustomerController.php" class="btn btn-primary mb-3">Thêm khách hàng mới</a>
+                <a href="../controllers/CustomerController.php?action=add" class="btn btn-primary mb-3">Thêm khách hàng mới</a>
                 <table class="table table-bordered">
                     <thead>
                     <tr>
@@ -152,21 +138,21 @@ if ($result === false) {
                     </tr>
                     </thead>
                     <tbody>
-                    <?php if ($result->num_rows > 0): ?>
-                        <?php while ($row = $result->fetch_assoc()): ?>
+                    <?php if (!empty($customers)): ?>
+                        <?php foreach ($customers as $customer): ?>
                             <tr>
-                                <td><?php echo htmlspecialchars($row['id']); ?></td>
-                                <td><?php echo htmlspecialchars($row['name']); ?></td>
-                                <td><?php echo htmlspecialchars($row['phone_number']); ?></td>
-                                <td><?php echo htmlspecialchars($row['email'] ?? 'N/A'); ?></td>
-                                <td><?php echo htmlspecialchars($row['address'] ?? 'N/A'); ?></td>
+                                <td><?php echo htmlspecialchars($customer['id']); ?></td>
+                                <td><?php echo htmlspecialchars($customer['name']); ?></td>
+                                <td><?php echo htmlspecialchars($customer['phone_number'] ?? 'N/A'); ?></td>
+                                <td><?php echo htmlspecialchars($customer['email'] ?? 'N/A'); ?></td>
+                                <td><?php echo htmlspecialchars($customer['address'] ?? 'N/A'); ?></td>
                                 <td>
-                                    <a href="update_customer.php?id=<?php echo $row['id']; ?>" class="btn btn-sm btn-primary">Sửa</a>
-                                    <a href="delete_customer.php?id=<?php echo $row['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa khách hàng này?');">Xóa</a>
-                                    <a href="customer_history.php?id=<?php echo $row['id']; ?>" class="btn btn-sm btn-info">Xem</a>
+                                    <a href="../controllers/CustomerController.php?action=update&id=<?php echo $customer['id']; ?>" class="btn btn-sm btn-primary">Sửa</a>
+                                    <a href="../controllers/CustomerController.php?action=delete&id=<?php echo $customer['id']; ?>" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa khách hàng này?');">Xóa</a>
+                                    <a href="../controllers/CustomerController.php?action=history&id=<?php echo $customer['id']; ?>" class="btn btn-sm btn-info">Xem</a>
                                 </td>
                             </tr>
-                        <?php endwhile; ?>
+                        <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
                             <td colspan="6" class="text-center">Không có khách hàng nào.</td>
@@ -179,13 +165,8 @@ if ($result === false) {
     </div>
 </div>
 
-<?php
-// Đóng kết nối
-$result->free();
-$conn->close();
-?>
-
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+?>

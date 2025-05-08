@@ -3,7 +3,7 @@ session_start();
 
 // Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
-    header("Location: login.php");
+    header("Location: view/login_view.php");
     exit();
 }
 
@@ -17,63 +17,47 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 // Bao gồm file kết nối cơ sở dữ liệu
 include 'config/db_connect.php';
 
-// Hàm lấy kết nối đến cơ sở dữ liệu
-function getConnection($host, $username, $password, $dbname) {
-    // Tạo kết nối mới
-    $conn = new mysqli($host, $username, $password, $dbname);
-    if ($conn->connect_error) {
-        die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
-    }
-    // Thiết lập mã hóa UTF-8
-    $conn->set_charset("utf8mb4");
-    return $conn;
-}
-
 // Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+$shop_db = 'fashion_shopp';
+$session_username = $_SESSION['username'] ?? 'Khách';
 
 // Lấy tên cơ sở từ bảng shop
-$conn_main = getConnection($host, $username, $password, 'fashion_shop'); // Kết nối đến cơ sở dữ liệu chính (fashion_shop)
 $sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
-$stmt_shop_name = $conn_main->prepare($sql_shop_name);
+$stmt_shop_name = $conn->prepare($sql_shop_name);
 if ($stmt_shop_name === false) {
-    die("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
+    die("Lỗi chuẩn bị truy vấn name: " . $conn->error);
 }
 $stmt_shop_name->bind_param('s', $shop_db);
 $stmt_shop_name->execute();
 $result_shop_name = $stmt_shop_name->get_result();
 $shop_row = $result_shop_name->fetch_assoc();
-$shop_name = $shop_row['name'] ?? $shop_db; // Nếu không tìm thấy, dùng $shop_db làm mặc định
+$shop_name = $shop_row['name'] ?? $shop_db;
 if (!$shop_row) {
     error_log("Không tìm thấy name cho db_name = '$shop_db' trong bảng shop.");
 }
 $stmt_shop_name->close();
-$conn_main->close(); // Đóng kết nối đến fashion_shop
-
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getConnection($host, $username, $password, $shop_db);
 
 // Lấy thời gian hiện tại
-$current_year = date('Y'); // Năm hiện tại: 2025
-$current_month = date('m'); // Tháng hiện tại: 04
-$month_start = "$current_year-$current_month-01 00:00:00"; // Ngày đầu tháng
-$month_end = date('Y-m-d H:i:s'); // Thời điểm hiện tại
+$current_year = date('Y');
+$current_month = date('m');
+$month_start = "$current_year-$current_month-01 00:00:00";
+$month_end = date('Y-m-d H:i:s');
 
 // 1. Tổng doanh thu tháng (month-to-date)
 $sql_revenue = "SELECT SUM(total_price) as total_revenue 
-               FROM `$shop_db`.`order` 
+               FROM `order` 
                WHERE order_date >= ? AND order_date <= ?";
 $stmt_revenue = $conn->prepare($sql_revenue);
 $stmt_revenue->bind_param('ss', $month_start, $month_end);
 $stmt_revenue->execute();
 $result_revenue = $stmt_revenue->get_result();
 $total_revenue = $result_revenue->fetch_assoc()['total_revenue'] ?? 0;
-$total_revenue = round($total_revenue); // Chỉ làm tròn, không chia cho 100
+$total_revenue = round($total_revenue);
 $stmt_revenue->close();
 
 // 2. Tổng đơn hàng trong tháng
 $sql_orders = "SELECT COUNT(*) as total_orders 
-               FROM `$shop_db`.`order` 
+               FROM `order` 
                WHERE order_date >= ? AND order_date <= ?";
 $stmt_orders = $conn->prepare($sql_orders);
 $stmt_orders->bind_param('ss', $month_start, $month_end);
@@ -84,7 +68,7 @@ $stmt_orders->close();
 
 // 3. Tổng khách hàng trong tháng (số khách hàng duy nhất đặt hàng)
 $sql_customers = "SELECT COUNT(DISTINCT customer_id) as total_customers 
-                 FROM `$shop_db`.`order` 
+                 FROM `order` 
                  WHERE order_date >= ? AND order_date <= ?";
 $stmt_customers = $conn->prepare($sql_customers);
 $stmt_customers->bind_param('ss', $month_start, $month_end);
@@ -95,9 +79,9 @@ $stmt_customers->close();
 
 // 4. Top 5 mặt hàng bán chạy nhất trong tháng (dựa trên số lượng bán ra)
 $sql_top_products = "SELECT p.name, SUM(od.quantity) as total_quantity 
-                    FROM `$shop_db`.order_detail od 
-                    JOIN `$shop_db`.`order` o ON od.order_id = o.id 
-                    JOIN `$shop_db`.product p ON od.product_id = p.id 
+                    FROM order_detail od 
+                    JOIN `order` o ON od.order_id = o.id 
+                    JOIN product p ON od.product_id = p.id 
                     WHERE o.order_date >= ? AND o.order_date <= ?
                     GROUP BY p.id, p.name 
                     ORDER BY total_quantity DESC 
@@ -123,6 +107,20 @@ $stmt_top_products->close();
     <link rel="stylesheet" href="./assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .btn-attendance:disabled {
+            background-color: #6c757d !important;
+            border-color: #6c757d !important;
+            cursor: not-allowed;
+        }
+        #attendanceMessage {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
 </head>
 <body>
 <div id="main">
@@ -137,7 +135,7 @@ $stmt_top_products->close();
             <li class="has-dropdown">
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="./view/products_list.php">Danh sách sản phẩm</a></li>
+                    <li><a href="view/products_list_view.php">Danh sách sản phẩm</a></li>
                     <li><a href="./view/product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
@@ -145,19 +143,19 @@ $stmt_top_products->close();
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="view/inventory_stock.php">Tồn kho</a></li>
+                    <li><a href="view/inventory_stock_view.php">Tồn kho</a></li>
                     <li><a href="view/import_goods.php">Nhập hàng</a></li>
                     <li><a href="view/export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
             <li><a href="view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li><a href="./view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+            <li><a href="view/flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="view/report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li><a href="view/switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
@@ -170,17 +168,25 @@ $stmt_top_products->close();
                 <input type="text" class="form-control" placeholder="Tìm kiếm...">
                 <button class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
-            <div class="dropdown">
-                <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                    <img src="img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                    <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
-                    <li><a class="dropdown-item" href="logout.php">Đăng xuất</a></li>
-                </ul>
+            <div class="d-flex align-items-center">
+                <button id="attendanceBtn" class="btn btn-success me-2" onclick="recordAttendance()">Chấm Công</button>
+                <div class="dropdown">
+                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <img src="img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
+                        <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                        <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
+                        <li><a class="dropdown-item" href="logout.php">Đăng xuất</a></li>
+                    </ul>
+                </div>
             </div>
         </div>
+    </div>
+
+    <!-- Thông báo chấm công -->
+    <div id="attendanceMessage" class="alert alert-success" role="alert">
+        Chấm công thành công!
     </div>
 
     <!-- Nội dung chính -->
@@ -257,5 +263,76 @@ $conn->close();
 
 <script src="./assets/js/script.js"></script>
 <script src="./assets/js/bootstrap.bundle.min.js"></script>
+<script>
+    function recordAttendance() {
+        fetch('./controllers/EmployeeController.php?action=record_attendance', {
+            method: 'GET'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(`HTTP error ${response.status}: ${text}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    alert(data.error);
+                } else {
+                    const attendanceBtn = document.getElementById('attendanceBtn');
+                    const attendanceMessage = document.getElementById('attendanceMessage');
+
+                    // Hiển thị thông báo thành công
+                    attendanceMessage.style.display = 'block';
+                    setTimeout(() => {
+                        attendanceMessage.style.display = 'none';
+                    }, 3000);
+
+                    // Vô hiệu hóa nút
+                    attendanceBtn.disabled = true;
+                    attendanceBtn.classList.add('btn-attendance');
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi:', error);
+                alert('Đã xảy ra lỗi khi chấm công: ' + error.message);
+            });
+    }
+
+    // Kiểm tra trạng thái chấm công khi tải trang
+    document.addEventListener('DOMContentLoaded', function() {
+        const attendanceBtn = document.getElementById('attendanceBtn');
+
+        // Kiểm tra xem đã chấm công hôm nay chưa
+        fetch('./controllers/EmployeeController.php?action=check_attendance', {
+            method: 'GET'
+        })
+            .then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        throw new Error(`HTTP error ${response.status}: ${text}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Phản hồi check_attendance:', data);
+                if (data.hasAttended) {
+                    attendanceBtn.disabled = true;
+                    attendanceBtn.classList.add('btn-attendance');
+                } else {
+                    attendanceBtn.disabled = false;
+                    attendanceBtn.classList.remove('btn-attendance');
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi kiểm tra trạng thái chấm công:', error);
+                alert('Lỗi kiểm tra trạng thái chấm công: ' + error.message);
+                attendanceBtn.disabled = true;
+                attendanceBtn.classList.add('btn-attendance');
+            });
+    });
+</script>
 </body>
 </html>

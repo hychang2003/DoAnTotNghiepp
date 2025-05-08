@@ -8,6 +8,6 @@ $_SESSION = array();
 session_destroy();
 
 // Chuyển hướng về trang đăng nhập
-header("Location: login.php");
+header("Location: login_view.php");
 exit();
 ?>

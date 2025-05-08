@@ -1,3 +1,12 @@
+<?php
+include_once '../config/session_check.php';
+include_once '../controllers/CustomerController.php';
+
+// Debug session
+error_log("add_customer_view.php - Session ID: " . session_id());
+error_log("add_customer_view.php - Logged in: " . (isset($_SESSION['loggedin']) ? 'true' : 'false'));
+?>
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -21,28 +30,28 @@
             <li class="has-dropdown">
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/products_list.php">Danh sách sản phẩm</a></li>
-                    <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
+                    <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
+                    <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
-                    <li><a href="../view/inventory_stock.php">Tồn kho</a></li>
-                    <li><a href="../view/import_goods.php">Nhập hàng</a></li>
-                    <li><a href="../view/export_goods.php">Xuất hàng</a></li>
+                    <li><a href="inventory_stock_view.php">Tồn kho</a></li>
+                    <li><a href="import_goods.php">Nhập hàng</a></li>
+                    <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if (isset($role) && $role === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="../view/report.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if (isset($role) && $role === 'admin'): ?>
-                <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
@@ -57,7 +66,7 @@
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($session_username ?? 'Khách'); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Khách'); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -85,8 +94,7 @@
         <!-- Form thêm khách hàng -->
         <div class="card mt-3">
             <div class="card-body">
-                <form method="POST" action="">
-                    <input type="hidden" name="add_customer" value="1">
+                <form method="POST" action="../controllers/CustomerController.php?action=add">
                     <div class="mb-3">
                         <label for="name" class="form-label">Tên khách hàng <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="name" name="name" value="<?php echo isset($_POST['name']) ? htmlspecialchars($_POST['name']) : ''; ?>" required>
@@ -104,7 +112,7 @@
                         <textarea class="form-control" id="address" name="address"><?php echo isset($_POST['address']) ? htmlspecialchars($_POST['address']) : ''; ?></textarea>
                     </div>
                     <button type="submit" class="btn btn-primary">Thêm khách hàng</button>
-                    <a href="../view/customer.php" class="btn btn-secondary">Quay lại</a>
+                    <a href="customer.php" class="btn btn-secondary">Quay lại</a>
                 </form>
             </div>
         </div>
@@ -115,3 +123,4 @@
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+?>
