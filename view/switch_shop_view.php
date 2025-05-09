@@ -1,3 +1,70 @@
+<?php
+session_start();
+
+// Kiểm tra trạng thái đăng nhập
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../login_view.php");
+    exit();
+}
+
+// Kiểm tra quyền truy cập
+if ($_SESSION['role'] !== 'admin') {
+    header("Location: ../index.php?error=access_denied");
+    exit();
+}
+
+// Kết nối cơ sở dữ liệu
+include '../config/db_connect.php';
+$conn = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn->connect_error) {
+    $error = "Lỗi kết nối tới cơ sở dữ liệu: " . $conn->connect_error;
+} else {
+    $conn->set_charset("utf8mb4");
+}
+
+// Lấy danh sách cơ sở từ bảng shop
+$shops = [];
+if (!isset($error)) {
+    $sql = "SELECT id, name, db_name FROM shop";
+    $result = $conn->query($sql);
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            $shops[] = $row;
+        }
+        $result->free();
+    } else {
+        $error = "Lỗi khi lấy danh sách cơ sở: " . $conn->error;
+    }
+}
+
+// Xử lý chuyển đổi cơ sở
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['switch_shop'])) {
+    $shop_db = trim($_POST['shop_db'] ?? '');
+
+    if (empty($shop_db)) {
+        $error = "Vui lòng chọn một cơ sở!";
+    } else {
+        // Kiểm tra xem shop_db có tồn tại trong danh sách cơ sở không
+        $valid_shop = false;
+        foreach ($shops as $shop) {
+            if ($shop['db_name'] === $shop_db) {
+                $valid_shop = true;
+                break;
+            }
+        }
+
+        if ($valid_shop) {
+            // Cập nhật session với cơ sở mới
+            $_SESSION['shop_db'] = $shop_db;
+            header("Location: ../index.php?shop_switched=success");
+            exit();
+        } else {
+            $error = "Cơ sở không hợp lệ!";
+        }
+    }
+}
+?>
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -35,13 +102,13 @@
                 </ul>
             </li>
             <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/switch_shop.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                <li><a href="../view/switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
@@ -57,7 +124,7 @@
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo isset($_SESSION['username']) ? htmlspecialchars($_SESSION['username']) : 'Khách'; ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -74,7 +141,7 @@
         </header>
 
         <!-- Thông báo lỗi -->
-        <?php if (!empty($error)): ?>
+        <?php if (isset($error)): ?>
             <div class="alert alert-danger" role="alert">
                 <?php echo htmlspecialchars($error); ?>
             </div>
@@ -90,7 +157,7 @@
                         <select class="form-control" id="shop_db" name="shop_db" required>
                             <option value="">Chọn cơ sở</option>
                             <?php foreach ($shops as $shop): ?>
-                                <option value="<?php echo $shop['db_name']; ?>" <?php echo (isset($_SESSION['shop_db']) && $shop['db_name'] == $_SESSION['shop_db']) ? 'selected' : ''; ?>>
+                                <option value="<?php echo htmlspecialchars($shop['db_name']); ?>" <?php echo (isset($_SESSION['shop_db']) && $shop['db_name'] === $_SESSION['shop_db']) ? 'selected' : ''; ?>>
                                     <?php echo htmlspecialchars($shop['name']); ?>
                                 </option>
                             <?php endforeach; ?>
@@ -103,8 +170,14 @@
     </div>
 </div>
 
+<?php
+// Đóng kết nối nếu tồn tại
+if (isset($conn) && $conn instanceof mysqli) {
+    $conn->close();
+}
+?>
+
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-?>

@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    error_log("Chuyển hướng đến login_view.php do chưa đăng nhập.");
     header("Location: ../login_view.php");
     exit();
 }
@@ -12,44 +13,85 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 // Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Bao gồm file kết nối cơ sở dữ liệu và model
+// Bao gồm file kết nối cơ sở dữ liệu
 include_once '../config/db_connect.php';
-include_once '../models/ProductModel.php';
 
-// Lấy cơ sở hiện tại từ session
+// Lấy thông tin từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
+$role = $_SESSION['role'] ?? 'user';
 
-// Kiểm tra session_username để ngăn truy cập không hợp lệ
-if (!isset($session_username) || empty($session_username)) {
+// Kiểm tra username
+if (empty($session_username)) {
+    error_log("Username không hợp lệ, chuyển hướng đến login_view.php.");
     header("Location: ../login_view.php");
     exit();
 }
 
-// Khởi tạo Model và lấy dữ liệu nếu $products chưa được định nghĩa
-if (!isset($products)) {
-    $model = new ProductModel($host, $username, $password, $shop_db);
+// Lấy tên cửa hàng
+$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_common->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+    $shop_name = $shop_db;
+} else {
+    $conn_common->set_charset("utf8mb4");
+    $sql = "SELECT name FROM shop WHERE db_name = ?";
+    $stmt = $conn_common->prepare($sql);
+    if ($stmt === false) {
+        error_log("Lỗi chuẩn bị truy vấn tên cửa hàng: " . $conn_common->error);
+        $shop_name = $shop_db;
+    } else {
+        $stmt->bind_param('s', $shop_db);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $shop_name = $result->num_rows > 0 ? $result->fetch_assoc()['name'] : $shop_db;
+        $stmt->close();
+    }
+    $conn_common->close();
+}
+
+// Kết nối đến cơ sở dữ liệu shop_11
+$conn = new mysqli($host, $username, $password, $shop_db);
+if ($conn->connect_error) {
+    error_log("Lỗi kết nối đến $shop_db: " . $conn->connect_error);
+    $error = "Lỗi kết nối đến cơ sở dữ liệu.";
     $products = [];
-    $error = '';
-    $success = '';
+} else {
+    $conn->set_charset("utf8mb4");
 
-    // Xử lý thông báo từ query string
-    if (isset($_GET['added']) && $_GET['added'] === 'success') {
-        $success = "Thêm sản phẩm thành công!";
-    } elseif (isset($_GET['product_deleted']) && $_GET['product_deleted'] === 'success') {
-        $success = "Xóa sản phẩm thành công!";
-    } elseif (isset($_GET['updated']) && $_GET['updated'] === 'success') {
-        $success = "Cập nhật sản phẩm thành công!";
-    } elseif (isset($_GET['error'])) {
-        $error = $_GET['error'];
+    // Truy vấn danh sách sản phẩm
+    $products = [];
+    $sql = "SELECT p.id, p.name, p.price, p.image, p.category_id, p.flash_sale_id, 
+                   COALESCE(i.quantity, 0) AS quantity,
+                   c.name AS category_name, f.name AS flash_sale_name
+            FROM `$shop_db`.product p
+            LEFT JOIN `fashion_shopp`.category c ON p.category_id = c.id
+            LEFT JOIN `fashion_shopp`.flash_sale f ON p.flash_sale_id = f.id
+            LEFT JOIN `$shop_db`.inventory i ON p.id = i.product_id
+            ORDER BY p.created_at DESC";
+    $result = $conn->query($sql);
+    if ($result === false) {
+        error_log("Lỗi truy vấn sản phẩm: " . $conn->error);
+        $error = "Lỗi khi lấy danh sách sản phẩm.";
+    } else {
+        while ($row = $result->fetch_assoc()) {
+            $products[] = $row;
+        }
+        $result->free();
     }
+    $conn->close();
+}
 
-    try {
-        $products = $model->getProducts();
-    } catch (Exception $e) {
-        $error = "Lỗi khi lấy danh sách sản phẩm: " . $e->getMessage();
-    }
-    $model->close();
+// Xử lý thông báo
+$error = $error ?? '';
+$success = $success ?? '';
+if (isset($_SESSION['form_errors'])) {
+    $error = implode('<br>', $_SESSION['form_errors']);
+    unset($_SESSION['form_errors']);
+}
+if (isset($_SESSION['success_message'])) {
+    $success = $_SESSION['success_message'];
+    unset($_SESSION['success_message']);
 }
 ?>
 
@@ -58,7 +100,7 @@ if (!isset($products)) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Danh sách sản phẩm</title>
+    <title>Danh sách sản phẩm - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -125,7 +167,7 @@ if (!isset($products)) {
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh sách sản phẩm</h1>
+            <h1>Danh sách sản phẩm - Cơ sở: <?php echo htmlspecialchars($shop_name); ?> (DB: <?php echo htmlspecialchars($shop_db); ?>)</h1>
         </header>
 
         <!-- Thông báo -->
@@ -142,14 +184,16 @@ if (!isset($products)) {
 
         <div class="card mt-3">
             <div class="card-body">
+                <!-- Nút thêm sản phẩm -->
                 <a href="../controllers/ProductController.php" class="btn btn-primary mb-3">Thêm sản phẩm mới</a>
+                <!-- Bảng danh sách sản phẩm -->
                 <table class="table table-bordered">
                     <thead>
                     <tr>
                         <th>ID</th>
                         <th>Tên sản phẩm</th>
                         <th>Giá (VNĐ)</th>
-                        <th>Số lượng</th>
+                        <th>Số lượng tồn kho</th>
                         <th>Danh mục</th>
                         <th>Hình ảnh</th>
                         <th>Chương trình khuyến mãi</th>
@@ -163,7 +207,7 @@ if (!isset($products)) {
                                 <td><?php echo htmlspecialchars($product['id']); ?></td>
                                 <td><?php echo htmlspecialchars($product['name']); ?></td>
                                 <td><?php echo number_format($product['price'], 0, ',', '.'); ?></td>
-                                <td><?php echo htmlspecialchars($product['quantity'] ?? '0'); ?></td>
+                                <td><?php echo htmlspecialchars($product['quantity']); ?></td>
                                 <td><?php echo htmlspecialchars($product['category_name'] ?? 'N/A'); ?></td>
                                 <td>
                                     <?php

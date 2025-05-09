@@ -10,10 +10,11 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 // Bao gồm file kết nối cơ sở dữ liệu
 include '../config/db_connect.php';
 
-// Hàm lấy kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-function getShopConnection($host, $username, $password, $shop_db) {
-    $conn = new mysqli($host, $username, $password, $shop_db);
+// Hàm lấy kết nối đến cơ sở dữ liệu
+function getConnection($host, $username, $password, $db_name) {
+    $conn = new mysqli($host, $username, $password, $db_name);
     if ($conn->connect_error) {
+        error_log("Lỗi kết nối đến $db_name: " . $conn->connect_error);
         die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
     }
     $conn->set_charset("utf8mb4");
@@ -23,28 +24,34 @@ function getShopConnection($host, $username, $password, $shop_db) {
 // Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getShopConnection($host, $username, $password, $shop_db);
+// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại (cho bảng riêng: order, customer, users)
+$conn = getConnection($host, $username, $password, $shop_db);
+
+// Kết nối đến fashion_shopp (cho bảng chung: product, category, v.v.)
+$conn_common = getConnection($host, $username, $password, 'fashion_shopp');
+
+// Debug
+error_log("order.php: Connected to $shop_db for order/customer/users, fashion_shopp for common");
 
 // Hàm định dạng tiền tệ
 function formatCurrency($number) {
-    // Chuyển số thành số thực
     $number = floatval($number);
     if (floor($number) == $number) {
-        // Nếu là số nguyên, không hiển thị phần thập phân
         return number_format($number, 0, ',', '.');
     } else {
-        // Nếu có phần thập phân, hiển thị 2 chữ số thập phân
         return number_format($number, 2, ',', '.');
     }
 }
 
-// Truy vấn danh sách hóa đơn
+// Truy vấn danh sách hóa đơn từ cơ sở hiện tại
 $sql = "SELECT o.id, o.order_date, o.total_price, o.status, c.name AS customer_name, u.username AS user_name
         FROM `order` o
         LEFT JOIN customer c ON o.customer_id = c.id
         LEFT JOIN users u ON o.employee_id = u.id";
 $result = $conn->query($sql);
+if (!$result) {
+    error_log("Lỗi truy vấn order: " . $conn->error);
+}
 
 // Kiểm tra và cảnh báo nếu tổng tiền không hợp lý
 $max_allowed_total = 100000000; // Giới hạn tối đa 100 triệu
@@ -56,7 +63,7 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Danh sách hóa đơn</title>
+    <title>Danh sách hóa đơn - Cơ sở: <?php echo htmlspecialchars($shop_db); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -142,7 +149,7 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
                     </tr>
                     </thead>
                     <tbody>
-                    <?php if ($result->num_rows > 0): ?>
+                    <?php if ($result && $result->num_rows > 0): ?>
                         <?php while ($order = $result->fetch_assoc()): ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($order['id']); ?></td>
@@ -192,8 +199,11 @@ $min_allowed_total = 1000; // Giới hạn tối thiểu 1000 VNĐ
 
 <?php
 // Đóng kết nối
-$result->free();
+if ($result) {
+    $result->free();
+}
 $conn->close();
+$conn_common->close();
 ?>
 
 <script src="../assets/js/script.js"></script>

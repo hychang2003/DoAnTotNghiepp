@@ -3,16 +3,71 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    error_log("Chuyển hướng đến login_view.php do chưa đăng nhập.");
     header("Location: ../login_view.php");
     exit();
 }
 
+include_once '../config/db_connect.php';
+include_once '../models/ReportModel.php';
+
+$shop_db = $_SESSION['shop_db'] ?? 'shop_11';
 $session_username = $_SESSION['username'] ?? 'Khách';
-$shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
-$errors = isset($_SESSION['form_errors']) ? $_SESSION['form_errors'] : [];
-unset($_SESSION['form_errors']);
+error_log("session_username được gán: " . $session_username);
+
+try {
+    $model = new ReportModel($host, $username, $password, $shop_db);
+    $shop_name = $model->getShopName();
+} catch (Exception $e) {
+    error_log("Lỗi khởi tạo ReportModel hoặc lấy tên cửa hàng: " . $e->getMessage());
+    $_SESSION['form_errors'] = ["Lỗi khởi tạo mô hình dữ liệu: " . $e->getMessage()];
+    $shop_name = 'Cửa hàng mặc định';
+    $daily_revenue = ['labels' => [], 'data' => []];
+    $monthly_revenue = ['labels' => [], 'data' => []];
+    $yearly_revenue = ['labels' => [], 'data' => []];
+    $inventory = [];
+    $years = [date('Y')];
+    $profit_by_year = [];
+    $profit_by_month = [];
+    $profit_by_day = [];
+    $selected_year = date('Y');
+    $selected_month = date('m');
+}
+
+function formatCurrency($number) {
+    return number_format(floatval($number), 0, ',', '.') . ' VNĐ';
+}
+
+$selected_year = isset($_GET['year']) && is_numeric($_GET['year']) ? intval($_GET['year']) : date('Y');
+$selected_month = isset($_GET['month']) && is_numeric($_GET['month']) && $_GET['month'] >= 1 && $_GET['month'] <= 12 ? intval($_GET['month']) : date('m');
+
+try {
+    $daily_revenue = $model->getDailyRevenue();
+    $monthly_revenue = $model->getMonthlyRevenue($selected_year);
+    $yearly_revenue = $model->getYearlyRevenue();
+    $inventory = $model->getInventory();
+    $years = $model->getYears();
+    if (empty($years)) {
+        $years = [date('Y')];
+    }
+    $profit_by_year = $model->getProfitByYear();
+    $profit_by_month = $model->getProfitByMonth($selected_year);
+    $profit_by_day = $model->getProfitByDay($selected_year, $selected_month);
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy dữ liệu báo cáo: " . $e->getMessage());
+    $_SESSION['form_errors'] = ["Lỗi khi lấy dữ liệu báo cáo: " . $e->getMessage()];
+    $daily_revenue = ['labels' => [], 'data' => []];
+    $monthly_revenue = ['labels' => [], 'data' => []];
+    $yearly_revenue = ['labels' => [], 'data' => []];
+    $inventory = [];
+    $years = [date('Y')];
+    $profit_by_year = [];
+    $profit_by_month = [];
+    $profit_by_day = [];
+}
+
+$model->close();
 ?>
 
 <!DOCTYPE html>
@@ -23,13 +78,11 @@ unset($_SESSION['form_errors']);
     <title>Báo cáo - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSB7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <!-- Thêm Chart.js -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 <div id="main">
-    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
@@ -57,8 +110,8 @@ unset($_SESSION['form_errors']);
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="../controllers/FlashSaleController.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="../view/report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
@@ -66,7 +119,6 @@ unset($_SESSION['form_errors']);
         </ul>
     </div>
 
-    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
@@ -86,36 +138,31 @@ unset($_SESSION['form_errors']);
         </div>
     </div>
 
-    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Báo cáo</h1>
+            <h1>Báo cáo - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
-        <!-- Thông báo lỗi -->
-        <?php if (!empty($errors)): ?>
+        <?php if (!empty($_SESSION['form_errors'])): ?>
             <div class="alert alert-danger" role="alert">
-                <?php foreach ($errors as $error): ?>
+                <?php foreach ($_SESSION['form_errors'] as $error): ?>
                     <p><?php echo htmlspecialchars($error); ?></p>
                 <?php endforeach; ?>
+                <?php unset($_SESSION['form_errors']); ?>
             </div>
         <?php endif; ?>
 
         <div class="card mt-3">
             <div class="card-body">
-                <!-- Biểu đồ doanh thu theo ngày -->
                 <h3>Doanh thu theo ngày (30 ngày gần nhất)</h3>
                 <canvas id="dailyRevenueChart" height="100"></canvas>
 
-                <!-- Biểu đồ doanh thu theo tháng -->
-                <h3 class="mt-5">Doanh thu theo tháng (Năm <?php echo htmlspecialchars($selected_year ?? date('Y')); ?>)</h3>
+                <h3 class="mt-5">Doanh thu theo tháng (Năm <?php echo htmlspecialchars($selected_year); ?>)</h3>
                 <canvas id="monthlyRevenueChart" height="100"></canvas>
 
-                <!-- Biểu đồ doanh thu theo năm -->
                 <h3 class="mt-5">Doanh thu theo năm</h3>
                 <canvas id="yearlyRevenueChart" height="100"></canvas>
 
-                <!-- Thống kê hàng tồn kho -->
                 <h3 class="mt-5">Thống kê hàng tồn kho</h3>
                 <table class="table table-bordered">
                     <thead>
@@ -142,19 +189,17 @@ unset($_SESSION['form_errors']);
                     </tbody>
                 </table>
 
-                <!-- Báo cáo lợi nhuận -->
                 <h3 class="mt-5">Báo cáo lợi nhuận</h3>
 
-                <!-- Form lọc năm và tháng -->
                 <div class="card mt-3">
                     <div class="card-body">
-                        <form method="GET" action="">
+                        <form method="GET" action="../view/report_view.php">
                             <div class="row">
                                 <div class="col-md-4">
                                     <label for="year" class="form-label">Chọn năm</label>
                                     <select class="form-control" id="year" name="year" onchange="this.form.submit()">
                                         <?php foreach ($years as $year): ?>
-                                            <option value="<?php echo $year; ?>" <?php echo ($year == ($selected_year ?? date('Y'))) ? 'selected' : ''; ?>>
+                                            <option value="<?php echo $year; ?>" <?php echo ($year == $selected_year) ? 'selected' : ''; ?>>
                                                 <?php echo $year; ?>
                                             </option>
                                         <?php endforeach; ?>
@@ -164,7 +209,7 @@ unset($_SESSION['form_errors']);
                                     <label for="month" class="form-label">Chọn tháng</label>
                                     <select class="form-control" id="month" name="month" onchange="this.form.submit()">
                                         <?php for ($m = 1; $m <= 12; $m++): ?>
-                                            <option value="<?php echo $m; ?>" <?php echo ($m == ($selected_month ?? date('m'))) ? 'selected' : ''; ?>>
+                                            <option value="<?php echo $m; ?>" <?php echo ($m == $selected_month) ? 'selected' : ''; ?>>
                                                 Tháng <?php echo $m; ?>
                                             </option>
                                         <?php endfor; ?>
@@ -175,7 +220,6 @@ unset($_SESSION['form_errors']);
                     </div>
                 </div>
 
-                <!-- Báo cáo lợi nhuận theo năm -->
                 <div class="card mt-3">
                     <div class="card-body">
                         <h5>Lợi nhuận theo năm</h5>
@@ -191,7 +235,7 @@ unset($_SESSION['form_errors']);
                                 <?php foreach ($profit_by_year as $row): ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($row['year']); ?></td>
-                                        <td><?php echo formatCurrency($row['total_profit']); ?></td>
+                                        <td><?php echo formatCurrency($row['total_profit'] ?? 0); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -204,10 +248,9 @@ unset($_SESSION['form_errors']);
                     </div>
                 </div>
 
-                <!-- Báo cáo lợi nhuận theo tháng -->
                 <div class="card mt-3">
                     <div class="card-body">
-                        <h5>Lợi nhuận theo tháng (Năm <?php echo htmlspecialchars($selected_year ?? date('Y')); ?>)</h5>
+                        <h5>Lợi nhuận theo tháng (Năm <?php echo htmlspecialchars($selected_year); ?>)</h5>
                         <table class="table table-bordered">
                             <thead>
                             <tr>
@@ -220,7 +263,7 @@ unset($_SESSION['form_errors']);
                                 <?php foreach ($profit_by_month as $row): ?>
                                     <tr>
                                         <td>Tháng <?php echo htmlspecialchars($row['month']); ?></td>
-                                        <td><?php echo formatCurrency($row['total_profit']); ?></td>
+                                        <td><?php echo formatCurrency($row['total_profit'] ?? 0); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -233,10 +276,9 @@ unset($_SESSION['form_errors']);
                     </div>
                 </div>
 
-                <!-- Báo cáo lợi nhuận theo ngày -->
                 <div class="card mt-3">
                     <div class="card-body">
-                        <h5>Lợi nhuận theo ngày (Tháng <?php echo htmlspecialchars($selected_month ?? date('m')); ?> / <?php echo htmlspecialchars($selected_year ?? date('Y')); ?>)</h5>
+                        <h5>Lợi nhuận theo ngày (Tháng <?php echo htmlspecialchars($selected_month); ?> / <?php echo htmlspecialchars($selected_year); ?>)</h5>
                         <table class="table table-bordered">
                             <thead>
                             <tr>
@@ -249,7 +291,7 @@ unset($_SESSION['form_errors']);
                                 <?php foreach ($profit_by_day as $row): ?>
                                     <tr>
                                         <td><?php echo htmlspecialchars($row['order_date']); ?></td>
-                                        <td><?php echo formatCurrency($row['total_profit']); ?></td>
+                                        <td><?php echo formatCurrency($row['total_profit'] ?? 0); ?></td>
                                     </tr>
                                 <?php endforeach; ?>
                             <?php else: ?>
@@ -269,7 +311,11 @@ unset($_SESSION['form_errors']);
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Biểu đồ doanh thu theo ngày
+    // Debug dữ liệu biểu đồ
+    console.log('Daily Revenue:', <?php echo json_encode($daily_revenue); ?>);
+    console.log('Monthly Revenue:', <?php echo json_encode($monthly_revenue); ?>);
+    console.log('Yearly Revenue:', <?php echo json_encode($yearly_revenue); ?>);
+
     const dailyRevenueChart = new Chart(document.getElementById('dailyRevenueChart'), {
         type: 'bar',
         data: {
@@ -306,7 +352,6 @@ unset($_SESSION['form_errors']);
         }
     });
 
-    // Biểu đồ doanh thu theo tháng
     const monthlyRevenueChart = new Chart(document.getElementById('monthlyRevenueChart'), {
         type: 'bar',
         data: {
@@ -343,7 +388,6 @@ unset($_SESSION['form_errors']);
         }
     });
 
-    // Biểu đồ doanh thu theo năm
     const yearlyRevenueChart = new Chart(document.getElementById('yearlyRevenueChart'), {
         type: 'bar',
         data: {
@@ -382,4 +426,3 @@ unset($_SESSION['form_errors']);
 </script>
 </body>
 </html>
-?>

@@ -1,8 +1,11 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    error_log("Chuyển hướng đến login_view.php do chưa đăng nhập.");
     header("Location: ../login_view.php");
     exit();
 }
@@ -13,28 +16,32 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 // Bao gồm file kết nối cơ sở dữ liệu
 include '../config/db_connect.php';
 
-// Hàm lấy kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-function getShopConnection($host, $username, $password, $shop_db) {
-    $conn = new mysqli($host, $username, $password, $shop_db);
+// Hàm lấy kết nối đến cơ sở dữ liệu fashion_shopp
+function getCommonConnection($host, $username, $password) {
+    $conn = new mysqli($host, $username, $password, 'fashion_shopp');
     if ($conn->connect_error) {
-        die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
+        error_log("Lỗi kết nối đến fashion_shopp: " . $conn->connect_error);
+        die("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn->connect_error);
     }
     $conn->set_charset("utf8mb4");
     return $conn;
 }
 
-// Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
-
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getShopConnection($host, $username, $password, $shop_db);
+// Kết nối đến cơ sở dữ liệu fashion_shopp
+$conn = getCommonConnection($host, $username, $password);
 
 // Truy vấn danh sách chương trình khuyến mãi
-$sql = "SELECT * FROM flash_sale";
+$sql = "SELECT * FROM flash_sale ORDER BY start_date DESC";
 $result = $conn->query($sql);
 if ($result === false) {
+    error_log("Lỗi truy vấn danh sách khuyến mãi: " . $conn->error);
     die("Lỗi truy vấn: " . $conn->error);
 }
+
+// Lấy thông tin từ session
+$session_username = $_SESSION['username'] ?? 'Khách';
+$shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
+$role = $_SESSION['role'] ?? '';
 ?>
 
 <!DOCTYPE html>
@@ -42,7 +49,7 @@ if ($result === false) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Danh sách chương trình khuyến mãi</title>
+    <title>Danh sách chương trình khuyến mãi - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -74,12 +81,12 @@ if ($result === false) {
                 </ul>
             </li>
             <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if ($role === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="../view/flash_sale.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="../controllers/FlashSaleController.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if ($role === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
@@ -96,7 +103,7 @@ if ($result === false) {
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -109,7 +116,7 @@ if ($result === false) {
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh sách chương trình khuyến mãi</h1>
+            <h1>Danh sách chương trình khuyến mãi - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
         <!-- Thông báo thành công khi thêm chương trình khuyến mãi -->
@@ -164,7 +171,7 @@ if ($result === false) {
 
                             if ($current_date < $start_date) {
                                 $status_text = 'Chưa bắt đầu';
-                            } elseif ($current_date >= $start_date && $current_date <= $end_date) {
+                            } elseif ($current_date >= $start_date && $current_date <= $end_date && $row['status'] == 1) {
                                 $status_text = 'Đang diễn ra';
                             } else {
                                 $status_text = 'Đã kết thúc';

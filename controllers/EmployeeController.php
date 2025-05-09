@@ -3,20 +3,16 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
 error_log("Bắt đầu EmployeeController.php. Session hiện tại: " . print_r($_SESSION, true));
 
-// Kết nối cơ sở dữ liệu và model
 include_once '../config/db_connect.php';
 include_once '../models/EmployeeModel.php';
 
-// Kiểm tra kết nối cơ sở dữ liệu
 if ($conn->connect_error) {
     error_log("Lỗi kết nối cơ sở dữ liệu trong EmployeeController: " . $conn->connect_error);
     if (isset($_GET['action']) && in_array($_GET['action'], ['record_attendance', 'check_attendance'])) {
@@ -29,10 +25,10 @@ if ($conn->connect_error) {
 }
 error_log("Kết nối cơ sở dữ liệu được xác nhận trong EmployeeController.");
 
-// Khởi tạo Model
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 try {
-    $model = new EmployeeModel($host, $username, $password, 'fashion_shopp');
-    error_log("Khởi tạo EmployeeModel thành công.");
+    $model = new EmployeeModel($host, $username, $password, $shop_db);
+    error_log("Khởi tạo EmployeeModel thành công với shop_db=$shop_db.");
 } catch (Exception $e) {
     error_log("Lỗi khởi tạo EmployeeModel: " . $e->getMessage());
     if (isset($_GET['action']) && in_array($_GET['action'], ['record_attendance', 'check_attendance'])) {
@@ -44,7 +40,6 @@ try {
     exit();
 }
 
-// Xử lý các hành động
 $action = $_GET['action'] ?? '';
 error_log("Hành động được yêu cầu: $action");
 
@@ -53,7 +48,6 @@ if ($action === 'record_attendance') {
     header('Content-Type: application/json');
     error_log("Xử lý chấm công. Session: " . print_r($_SESSION, true));
     try {
-        // Kiểm tra session
         if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
             error_log("Lỗi chấm công: Phiên đăng nhập không hợp lệ.");
             echo json_encode(['error' => 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.']);
@@ -75,9 +69,8 @@ if ($action === 'record_attendance') {
             exit();
         }
 
-        // Kiểm tra người dùng trong bảng users
-        error_log("Kiểm tra người dùng trong bảng users với ID: $employee_id");
-        $sql = "SELECT id, role, username FROM users WHERE id = ?";
+        error_log("Kiểm tra người dùng trong bảng users với ID: $employee_id trong $shop_db");
+        $sql = "SELECT id, role, username FROM `$shop_db`.users WHERE id = ?";
         $stmt = $conn->prepare($sql);
         if ($stmt === false) {
             error_log("Lỗi chấm công: Không thể chuẩn bị truy vấn kiểm tra user: " . $conn->error);
@@ -97,7 +90,7 @@ if ($action === 'record_attendance') {
         error_log("Kết quả kiểm tra người dùng: " . print_r($user, true));
 
         if (!$user) {
-            error_log("Lỗi chấm công: Không tìm thấy người dùng với ID: $employee_id trong bảng users.");
+            error_log("Lỗi chấm công: Không tìm thấy người dùng với ID: $employee_id trong bảng users của $shop_db.");
             echo json_encode(['error' => "Người dùng không tồn tại: Không tìm thấy ID $employee_id trong cơ sở dữ liệu."]);
             exit();
         }
@@ -139,8 +132,8 @@ if ($action === 'check_attendance') {
             echo json_encode(['error' => "ID nhân viên không hợp lệ: Giá trị user_id ($employee_id) không phải số dương."]);
             exit();
         }
-        error_log("Kiểm tra người dùng trong bảng users với ID: $employee_id");
-        $sql = "SELECT id, role FROM users WHERE id = ?";
+        error_log("Kiểm tra người dùng trong bảng users với ID: $employee_id trong $shop_db");
+        $sql = "SELECT id, role FROM `$shop_db`.users WHERE id = ?";
         $stmt = $conn->prepare($sql);
         if ($stmt === false) {
             error_log("Lỗi kiểm tra chấm công: Không thể chuẩn bị truy vấn kiểm tra user: " . $conn->error);
@@ -158,7 +151,7 @@ if ($action === 'check_attendance') {
         $user = $result->fetch_assoc();
         $stmt->close();
         if (!$user) {
-            error_log("Lỗi kiểm tra chấm công: Không tìm thấy người dùng với ID: $employee_id trong bảng users.");
+            error_log("Lỗi kiểm tra chấm công: Không tìm thấy người dùng với ID: $employee_id trong bảng users của $shop_db.");
             echo json_encode(['error' => "Người dùng không tồn tại: Không tìm thấy ID $employee_id trong cơ sở dữ liệu."]);
             exit();
         }
@@ -178,7 +171,6 @@ if ($action === 'check_attendance') {
     exit();
 }
 
-// Các hành động khác (giữ nguyên)
 if ($action === 'add') {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $username = trim($_POST['username'] ?? '');
@@ -212,8 +204,8 @@ if ($action === 'add') {
         }
         if (empty($phone_number)) {
             $errors[] = "Phải nhập số điện thoại.";
-        } elseif (!preg_match('/^[0-9]{10,15}$/', $phone_number)) {
-            $errors[] = "Số điện thoại không hợp lệ (phải có 10-15 chữ số).";
+        } elseif (!preg_match('/^[0-9]{10,11}$/', $phone_number)) {
+            $errors[] = "Số điện thoại không hợp lệ (phải có 10-11 chữ số).";
         }
         if (!in_array($role, ['admin', 'employee'])) {
             $errors[] = "Vai trò không hợp lệ.";
@@ -221,7 +213,7 @@ if ($action === 'add') {
 
         if (empty($errors)) {
             try {
-                error_log("Thêm nhân viên: username=$username, role=$role");
+                error_log("Thêm nhân viên: username=$username, role=$role trong $shop_db");
                 $model->addEmployee($username, $password, $role, $name, $email, $phone_number);
                 header("Location: ../view/employee.php?add_success=true");
                 exit();
@@ -244,7 +236,7 @@ if ($action === 'delete') {
     $employee_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($employee_id > 0) {
         try {
-            error_log("Xóa nhân viên ID: $employee_id");
+            error_log("Xóa nhân viên ID: $employee_id trong $shop_db");
             $model->deleteEmployee($employee_id);
             header("Location: ../view/employee.php?delete_success=true");
             exit();
@@ -264,7 +256,7 @@ if ($action === 'update') {
     $employee_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($employee_id > 0) {
         try {
-            error_log("Lấy thông tin nhân viên ID: $employee_id để cập nhật");
+            error_log("Lấy thông tin nhân viên ID: $employee_id để cập nhật trong $shop_db");
             $employee = $model->getEmployeeById($employee_id);
             if (!$employee) {
                 error_log("Không tìm thấy nhân viên ID: $employee_id");
@@ -311,8 +303,8 @@ if ($action === 'save_update') {
         }
         if (empty($phone_number)) {
             $errors[] = "Phải nhập số điện thoại.";
-        } elseif (!preg_match('/^[0-9]{10,15}$/', $phone_number)) {
-            $errors[] = "Số điện thoại không hợp lệ (phải có 10-15 chữ số).";
+        } elseif (!preg_match('/^[0-9]{10,11}$/', $phone_number)) {
+            $errors[] = "Số điện thoại không hợp lệ (phải có 10-11 chữ số).";
         }
         if (!in_array($role, ['admin', 'employee'])) {
             $errors[] = "Vai trò không hợp lệ.";
@@ -323,7 +315,7 @@ if ($action === 'save_update') {
 
         if (empty($errors)) {
             try {
-                error_log("Cập nhật nhân viên ID $employee_id: role=$role, name=$name, email=$email, phone=$phone_number");
+                error_log("Cập nhật nhân viên ID $employee_id: role=$role, name=$name, email=$email, phone=$phone_number trong $shop_db");
                 $model->updateEmployee($employee_id, $role, $name, $email, $phone_number, $password);
                 header("Location: ../view/employee.php?update_success=true");
                 exit();
@@ -346,7 +338,7 @@ if ($action === 'view_salary') {
     $employee_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($employee_id > 0) {
         try {
-            error_log("Lấy thông tin lương nhân viên ID: $employee_id");
+            error_log("Lấy thông tin lương nhân viên ID: $employee_id trong $shop_db");
             $employee = $model->getEmployeeById($employee_id);
             if (!$employee) {
                 error_log("Không tìm thấy nhân viên ID: $employee_id");
@@ -395,7 +387,7 @@ if ($action === 'update_salary') {
         if (empty($errors)) {
             try {
                 $total_salary = $work_days * $salary_per_day;
-                error_log("Cập nhật lương nhân viên ID $employee_id, tháng $month: work_days=$work_days, salary_per_day=$salary_per_day, total_salary=$total_salary");
+                error_log("Cập nhật lương nhân viên ID $employee_id, tháng $month: work_days=$work_days, salary_per_day=$salary_per_day, total_salary=$total_salary trong $shop_db");
                 $affected_rows = $model->updateSalary($employee_id, $month, $work_days, $salary_per_day, $total_salary);
                 if ($affected_rows > 0) {
                     error_log("Cập nhật lương thành công cho ID $employee_id, tháng $month. Affected rows: $affected_rows");
@@ -425,7 +417,7 @@ if ($action === 'update_payment_status') {
 
     if ($employee_id > 0 && in_array($status, ['paid', 'unpaid']) && preg_match('/^\d{4}-\d{2}$/', $month)) {
         try {
-            error_log("Cập nhật trạng thái lương ID $employee_id, tháng $month, status=$status");
+            error_log("Cập nhật trạng thái lương ID $employee_id, tháng $month, status=$status trong $shop_db");
             $model->updatePaymentStatus($employee_id, $month, $status);
             header("Location: ../controllers/EmployeeController.php?action=view_salary&id=$employee_id&success=" . urlencode("Cập nhật trạng thái lương thành công."));
             exit();
@@ -441,7 +433,6 @@ if ($action === 'update_payment_status') {
     }
 }
 
-// Kiểm tra trạng thái đăng nhập và quyền admin cho các hành động khác
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     error_log("Chuyển hướng đến login_view.php do chưa đăng nhập.");
     header("Location: ../login_view.php");
@@ -453,9 +444,8 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     exit();
 }
 
-// Lấy danh sách nhân viên
 try {
-    error_log("Lấy danh sách nhân viên.");
+    error_log("Lấy danh sách nhân viên trong $shop_db.");
     $employees = $model->getEmployees();
     error_log("Lấy danh sách nhân viên thành công: " . count($employees) . " nhân viên.");
 } catch (Exception $e) {
@@ -463,11 +453,9 @@ try {
     $employees = [];
 }
 
-// Đóng kết nối
 $model->close();
 error_log("Đóng kết nối EmployeeModel.");
 
-// Tải View
 include '../view/employee.php';
 error_log("Tải view employee.php thành công.");
 ?>

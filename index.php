@@ -18,24 +18,42 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 include 'config/db_connect.php';
 
 // Lấy cơ sở hiện tại từ session
-$shop_db = 'fashion_shopp';
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
 
-// Lấy tên cơ sở từ bảng shop
-$sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
-$stmt_shop_name = $conn->prepare($sql_shop_name);
-if ($stmt_shop_name === false) {
-    die("Lỗi chuẩn bị truy vấn name: " . $conn->error);
+// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
+$conn = new mysqli($host, $username, $password, $shop_db);
+if ($conn->connect_error) {
+    error_log("Lỗi kết nối đến $shop_db: " . $conn->connect_error);
+    die("Lỗi kết nối cơ sở dữ liệu.");
 }
-$stmt_shop_name->bind_param('s', $shop_db);
-$stmt_shop_name->execute();
-$result_shop_name = $stmt_shop_name->get_result();
-$shop_row = $result_shop_name->fetch_assoc();
-$shop_name = $shop_row['name'] ?? $shop_db;
-if (!$shop_row) {
-    error_log("Không tìm thấy name cho db_name = '$shop_db' trong bảng shop.");
+$conn->set_charset("utf8mb4");
+
+// Kết nối đến fashion_shopp để lấy tên cơ sở
+$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_common->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+    $shop_name = $shop_db;
+} else {
+    $conn_common->set_charset("utf8mb4");
+    $sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
+    $stmt_shop_name = $conn_common->prepare($sql_shop_name);
+    if ($stmt_shop_name === false) {
+        error_log("Lỗi chuẩn bị truy vấn name: " . $conn_common->error);
+        $shop_name = $shop_db;
+    } else {
+        $stmt_shop_name->bind_param('s', $shop_db);
+        $stmt_shop_name->execute();
+        $result_shop_name = $stmt_shop_name->get_result();
+        $shop_row = $result_shop_name->fetch_assoc();
+        $shop_name = $shop_row['name'] ?? $shop_db;
+        if (!$shop_row) {
+            error_log("Không tìm thấy name cho db_name = '$shop_db' trong bảng shop.");
+        }
+        $stmt_shop_name->close();
+    }
+    $conn_common->close();
 }
-$stmt_shop_name->close();
 
 // Lấy thời gian hiện tại
 $current_year = date('Y');
@@ -45,7 +63,7 @@ $month_end = date('Y-m-d H:i:s');
 
 // 1. Tổng doanh thu tháng (month-to-date)
 $sql_revenue = "SELECT SUM(total_price) as total_revenue 
-               FROM `order` 
+               FROM `$shop_db`.`order` 
                WHERE order_date >= ? AND order_date <= ?";
 $stmt_revenue = $conn->prepare($sql_revenue);
 $stmt_revenue->bind_param('ss', $month_start, $month_end);
@@ -57,7 +75,7 @@ $stmt_revenue->close();
 
 // 2. Tổng đơn hàng trong tháng
 $sql_orders = "SELECT COUNT(*) as total_orders 
-               FROM `order` 
+               FROM `$shop_db`.`order` 
                WHERE order_date >= ? AND order_date <= ?";
 $stmt_orders = $conn->prepare($sql_orders);
 $stmt_orders->bind_param('ss', $month_start, $month_end);
@@ -68,7 +86,7 @@ $stmt_orders->close();
 
 // 3. Tổng khách hàng trong tháng (số khách hàng duy nhất đặt hàng)
 $sql_customers = "SELECT COUNT(DISTINCT customer_id) as total_customers 
-                 FROM `order` 
+                 FROM `$shop_db`.`order` 
                  WHERE order_date >= ? AND order_date <= ?";
 $stmt_customers = $conn->prepare($sql_customers);
 $stmt_customers->bind_param('ss', $month_start, $month_end);
@@ -79,9 +97,9 @@ $stmt_customers->close();
 
 // 4. Top 5 mặt hàng bán chạy nhất trong tháng (dựa trên số lượng bán ra)
 $sql_top_products = "SELECT p.name, SUM(od.quantity) as total_quantity 
-                    FROM order_detail od 
-                    JOIN `order` o ON od.order_id = o.id 
-                    JOIN product p ON od.product_id = p.id 
+                    FROM `$shop_db`.order_detail od 
+                    JOIN `$shop_db`.`order` o ON od.order_id = o.id 
+                    JOIN `$shop_db`.product p ON od.product_id = p.id 
                     WHERE o.order_date >= ? AND o.order_date <= ?
                     GROUP BY p.id, p.name 
                     ORDER BY total_quantity DESC 

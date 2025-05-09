@@ -1,14 +1,18 @@
 <?php
-session_start();
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    error_log("Chuyển hướng đến login_view.php do chưa đăng nhập.");
     header("Location: ../login_view.php");
     exit();
 }
 
 // Kiểm tra quyền truy cập
 if ($_SESSION['role'] !== 'admin') {
+    error_log("Chuyển hướng đến index.php do không có quyền admin.");
     header("Location: ../index.php?error=access_denied");
     exit();
 }
@@ -20,11 +24,23 @@ header("Pragma: no-cache");
 // Bao gồm file kết nối cơ sở dữ liệu
 include '../config/db_connect.php';
 
+// Hàm lấy kết nối đến cơ sở dữ liệu fashion_shopp
+function getCommonConnection($host, $username, $password) {
+    $conn = new mysqli($host, $username, $password, 'fashion_shopp');
+    if ($conn->connect_error) {
+        error_log("Lỗi kết nối đến fashion_shopp: " . $conn->connect_error);
+        die("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn->connect_error);
+    }
+    $conn->set_charset("utf8mb4");
+    return $conn;
+}
+
 // Hàm lấy kết nối đến cơ sở dữ liệu của cơ sở hiện tại
 function getShopConnection($host, $username, $password, $shop_db) {
     $conn = new mysqli($host, $username, $password, $shop_db);
     if ($conn->connect_error) {
-        die("Lỗi kết nối đến cơ sở dữ liệu: " . $conn->connect_error);
+        error_log("Lỗi kết nối đến cơ sở dữ liệu shop $shop_db: " . $conn->connect_error);
+        die("Lỗi kết nối đến cơ sở dữ liệu shop: " . $conn->connect_error);
     }
     $conn->set_charset("utf8mb4");
     return $conn;
@@ -32,112 +48,104 @@ function getShopConnection($host, $username, $password, $shop_db) {
 
 // Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+$shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
+$session_username = $_SESSION['username'] ?? 'Khách';
+error_log("Shop hiện tại: $shop_db, Tên shop: $shop_name, Username: $session_username");
 
-// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại
-$conn = getShopConnection($host, $username, $password, $shop_db);
+// Kết nối đến cơ sở dữ liệu fashion_shopp (cho bảng category và flash_sale)
+$conn_common = getCommonConnection($host, $username, $password);
 
-// Truy vấn danh sách sản phẩm từ bảng product
+// Kết nối đến cơ sở dữ liệu của cơ sở hiện tại (cho bảng product)
+$conn_shop = getShopConnection($host, $username, $password, $shop_db);
+
+// Truy vấn danh sách sản phẩm từ bảng product (shop_db) và category (fashion_shopp)
 $sql_product = "SELECT p.id, p.name, p.price, c.name AS category_name, p.image 
-                FROM product p 
-                LEFT JOIN category c ON p.category_id = c.id";
-$result_product = $conn->query($sql_product);
+                FROM `$shop_db`.product p 
+                LEFT JOIN fashion_shopp.category c ON p.category_id = c.id";
+$result_product = $conn_shop->query($sql_product);
 if ($result_product === false) {
-    die("Lỗi truy vấn sản phẩm: " . $conn->error);
+    error_log("Lỗi truy vấn sản phẩm: " . $conn_shop->error);
+    die("Lỗi truy vấn sản phẩm: " . $conn_shop->error);
 }
 
-// Truy vấn danh sách chương trình khuyến mãi đang hoạt động
+// Truy vấn danh sách chương trình khuyến mãi đang hoạt động từ fashion_shopp
 $current_date = date('Y-m-d H:i:s');
 $sql_flash_sales = "SELECT id, name 
-                    FROM flash_sale 
-                    WHERE start_date <= ? AND end_date >= ?";
-$stmt_flash_sales = $conn->prepare($sql_flash_sales);
+                    FROM fashion_shopp.flash_sale 
+                    WHERE start_date <= ? AND end_date >= ? AND status = 1";
+$stmt_flash_sales = $conn_common->prepare($sql_flash_sales);
+if ($stmt_flash_sales === false) {
+    error_log("Lỗi chuẩn bị truy vấn flash_sale: " . $conn_common->error);
+    die("Lỗi chuẩn bị truy vấn flash_sale: " . $conn_common->error);
+}
 $stmt_flash_sales->bind_param('ss', $current_date, $current_date);
 $stmt_flash_sales->execute();
 $result_flash_sales = $stmt_flash_sales->get_result();
 
-// Lấy danh sách chương trình khuyến mãi đã áp dụng cho từng sản phẩm
+// Lấy danh sách chương trình khuyến mãi đã áp dụng cho từng sản phẩm từ shop_db
 $applied_flash_sales = [];
-$sql_applied = "SELECT product_id, flash_sale_id 
-                FROM product_flash_sale";
-$result_applied = $conn->query($sql_applied);
-if ($result_applied) {
-    while ($row = $result_applied->fetch_assoc()) {
-        $applied_flash_sales[$row['product_id']] = $row['flash_sale_id'];
-    }
+$sql_applied = "SELECT id, flash_sale_id 
+                FROM `$shop_db`.product WHERE flash_sale_id IS NOT NULL";
+$result_applied = $conn_shop->query($sql_applied);
+if ($result_applied === false) {
+    error_log("Lỗi truy vấn flash_sale đã áp dụng: " . $conn_shop->error);
+    die("Lỗi truy vấn flash_sale đã áp dụng: " . $conn_shop->error);
+}
+while ($row = $result_applied->fetch_assoc()) {
+    $applied_flash_sales[$row['id']] = $row['flash_sale_id'];
 }
 
 // Xử lý áp dụng chương trình khuyến mãi
 $error = '';
 $success = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    error_log("Nhận dữ liệu POST: " . print_r($_POST, true));
     if (!isset($_POST['product_ids']) || !isset($_POST['flash_sale_id']) || empty($_POST['product_ids'])) {
         $error = "Vui lòng chọn ít nhất một sản phẩm và một chương trình khuyến mãi!";
+        error_log("Lỗi: Thiếu product_ids hoặc flash_sale_id.");
     } else {
         $product_ids = array_map('intval', $_POST['product_ids']); // Chuyển các product_id thành số nguyên
         $flash_sale_id = (int)$_POST['flash_sale_id'];
+        error_log("Áp dụng flash_sale_id=$flash_sale_id cho product_ids=" . implode(',', $product_ids));
 
-        // Xóa các chương trình khuyến mãi cũ của các sản phẩm được chọn
-        $sql_delete = "DELETE FROM product_flash_sale WHERE product_id IN (" . implode(',', array_fill(0, count($product_ids), '?')) . ")";
-        $stmt_delete = $conn->prepare($sql_delete);
-        if ($stmt_delete === false) {
-            $error = "Lỗi chuẩn bị truy vấn xóa: " . $conn->error;
+        // Kiểm tra xem flash_sale_id có hợp lệ không
+        $sql_check_flash_sale = "SELECT id FROM fashion_shopp.flash_sale WHERE id = ? AND start_date <= ? AND end_date >= ? AND status = 1";
+        $stmt_check_flash_sale = $conn_common->prepare($sql_check_flash_sale);
+        if ($stmt_check_flash_sale === false) {
+            $error = "Lỗi chuẩn bị truy vấn kiểm tra flash_sale: " . $conn_common->error;
+            error_log("Lỗi chuẩn bị kiểm tra flash_sale: " . $conn_common->error);
         } else {
-            $stmt_delete->bind_param(str_repeat('i', count($product_ids)), ...$product_ids);
-            if (!$stmt_delete->execute()) {
-                $error = "Lỗi khi xóa chương trình khuyến mãi cũ: " . $stmt_delete->error;
+            $stmt_check_flash_sale->bind_param('iss', $flash_sale_id, $current_date, $current_date);
+            $stmt_check_flash_sale->execute();
+            $result_check_flash_sale = $stmt_check_flash_sale->get_result();
+            if ($result_check_flash_sale->num_rows === 0) {
+                $error = "Chương trình khuyến mãi không hợp lệ hoặc không hoạt động!";
+                error_log("Lỗi: flash_sale_id $flash_sale_id không hợp lệ hoặc không hoạt động.");
             }
-            $stmt_delete->close();
+            $stmt_check_flash_sale->close();
         }
 
-        // Cập nhật flash_sale_id trong bảng product thành NULL cho các sản phẩm được chọn
+        // Nếu không có lỗi, tiếp tục cập nhật flash_sale_id trong bảng product
         if (empty($error)) {
-            $sql_update_product = "UPDATE product SET flash_sale_id = NULL WHERE id IN (" . implode(',', array_fill(0, count($product_ids), '?')) . ")";
-            $stmt_update_product = $conn->prepare($sql_update_product);
+            $sql_update_product = "UPDATE `$shop_db`.product SET flash_sale_id = ? WHERE id IN (" . implode(',', array_fill(0, count($product_ids), '?')) . ")";
+            $stmt_update_product = $conn_shop->prepare($sql_update_product);
             if ($stmt_update_product === false) {
-                $error = "Lỗi chuẩn bị truy vấn cập nhật product: " . $conn->error;
+                $error = "Lỗi chuẩn bị truy vấn cập nhật product: " . $conn_shop->error;
+                error_log("Lỗi chuẩn bị cập nhật product: " . $conn_shop->error);
             } else {
-                $stmt_update_product->bind_param(str_repeat('i', count($product_ids)), ...$product_ids);
+                $params = array_merge([$flash_sale_id], $product_ids);
+                $types = 'i' . str_repeat('i', count($product_ids));
+                $stmt_update_product->bind_param($types, ...$params);
                 if (!$stmt_update_product->execute()) {
                     $error = "Lỗi khi cập nhật flash_sale_id trong bảng product: " . $stmt_update_product->error;
-                }
-                $stmt_update_product->close();
-            }
-        }
-
-        // Nếu không có lỗi, tiếp tục thêm chương trình khuyến mãi mới
-        if (empty($error)) {
-            $sql_insert = "INSERT INTO product_flash_sale (product_id, flash_sale_id) VALUES (?, ?)";
-            $stmt_insert = $conn->prepare($sql_insert);
-            if ($stmt_insert === false) {
-                $error = "Lỗi chuẩn bị truy vấn thêm: " . $conn->error;
-            } else {
-                $success_count = 0;
-                foreach ($product_ids as $product_id) {
-                    $stmt_insert->bind_param('ii', $product_id, $flash_sale_id);
-                    if ($stmt_insert->execute()) {
-                        $success_count++;
-
-                        // Cập nhật flash_sale_id trong bảng product
-                        $sql_update_flash_sale = "UPDATE product SET flash_sale_id = ? WHERE id = ?";
-                        $stmt_update_flash_sale = $conn->prepare($sql_update_flash_sale);
-                        $stmt_update_flash_sale->bind_param('ii', $flash_sale_id, $product_id);
-                        if (!$stmt_update_flash_sale->execute()) {
-                            $error = "Lỗi khi cập nhật flash_sale_id cho sản phẩm ID $product_id: " . $stmt_update_flash_sale->error;
-                            break;
-                        }
-                        $stmt_update_flash_sale->close();
-                    } else {
-                        $error = "Lỗi khi thêm chương trình khuyến mãi cho sản phẩm ID $product_id: " . $stmt_insert->error;
-                        break;
-                    }
-                }
-                $stmt_insert->close();
-
-                // Kiểm tra xem có sản phẩm nào được áp dụng thành công không
-                if ($success_count > 0 && empty($error)) {
+                    error_log("Lỗi cập nhật product: " . $stmt_update_product->error);
+                } else {
+                    $success = "Áp dụng chương trình khuyến mãi thành công cho " . count($product_ids) . " sản phẩm!";
+                    error_log("Cập nhật thành công flash_sale_id=$flash_sale_id cho " . count($product_ids) . " sản phẩm.");
                     header("Location: apply_flash_sale.php?success=1");
                     exit();
                 }
+                $stmt_update_product->close();
             }
         }
     }
@@ -147,11 +155,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 if (isset($_GET['success']) && $_GET['success'] == '1') {
     $success = "Áp dụng chương trình khuyến mãi thành công!";
     // Cập nhật lại mảng $applied_flash_sales để hiển thị dữ liệu mới
-    $result_applied = $conn->query($sql_applied);
+    $result_applied = $conn_shop->query($sql_applied);
     if ($result_applied) {
         $applied_flash_sales = [];
         while ($row = $result_applied->fetch_assoc()) {
-            $applied_flash_sales[$row['product_id']] = $row['flash_sale_id'];
+            $applied_flash_sales[$row['id']] = $row['flash_sale_id'];
         }
     }
 }
@@ -162,7 +170,7 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Áp dụng chương trình khuyến mãi</title>
+    <title>Áp dụng chương trình khuyến mãi - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -197,7 +205,7 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
             <?php if ($_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="../controllers/FlashSaleController.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if ($_SESSION['role'] === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
@@ -216,7 +224,7 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -229,7 +237,7 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Áp dụng chương trình khuyến mãi</h1>
+            <h1>Áp dụng chương trình khuyến mãi - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
         <!-- Thông báo -->
@@ -295,17 +303,22 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
                                         <?php
                                         if (isset($applied_flash_sales[$product['id']])) {
                                             $flash_sale_id = $applied_flash_sales[$product['id']];
-                                            $sql_flash_sale_name = "SELECT name FROM flash_sale WHERE id = ?";
-                                            $stmt_flash_sale_name = $conn->prepare($sql_flash_sale_name);
-                                            $stmt_flash_sale_name->bind_param('i', $flash_sale_id);
-                                            $stmt_flash_sale_name->execute();
-                                            $result_flash_sale_name = $stmt_flash_sale_name->get_result();
-                                            if ($row = $result_flash_sale_name->fetch_assoc()) {
-                                                echo htmlspecialchars($row['name']);
+                                            $sql_flash_sale_name = "SELECT name FROM fashion_shopp.flash_sale WHERE id = ?";
+                                            $stmt_flash_sale_name = $conn_common->prepare($sql_flash_sale_name);
+                                            if ($stmt_flash_sale_name === false) {
+                                                error_log("Lỗi chuẩn bị truy vấn flash_sale_name: " . $conn_common->error);
+                                                echo 'Lỗi truy vấn';
                                             } else {
-                                                echo 'N/A';
+                                                $stmt_flash_sale_name->bind_param('i', $flash_sale_id);
+                                                $stmt_flash_sale_name->execute();
+                                                $result_flash_sale_name = $stmt_flash_sale_name->get_result();
+                                                if ($row = $result_flash_sale_name->fetch_assoc()) {
+                                                    echo htmlspecialchars($row['name']);
+                                                } else {
+                                                    echo 'N/A';
+                                                }
+                                                $stmt_flash_sale_name->close();
                                             }
-                                            $stmt_flash_sale_name->close();
                                         } else {
                                             echo 'Chưa áp dụng';
                                         }
@@ -322,7 +335,7 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
                     </table>
 
                     <button type="submit" class="btn btn-primary">Áp dụng</button>
-                    <a href="flash_sale_view.php" class="btn btn-secondary">Quay lại</a>
+                    <a href="../controllers/FlashSaleController.php" class="btn btn-secondary">Quay lại</a>
                 </form>
             </div>
         </div>
@@ -333,7 +346,9 @@ if (isset($_GET['success']) && $_GET['success'] == '1') {
 // Đóng kết nối
 $result_product->free();
 $result_flash_sales->free();
-$conn->close();
+$result_applied->free();
+$conn_common->close();
+$conn_shop->close();
 ?>
 
 <script src="../assets/js/script.js"></script>

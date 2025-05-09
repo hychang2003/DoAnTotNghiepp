@@ -28,10 +28,10 @@ function getConnection($host, $username, $password, $dbname) {
 }
 
 // Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'shop_1';
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
 // Kết nối đến cơ sở dữ liệu chính
-$conn_main = getConnection($host, $username, $password, 'fashion_shop');
+$conn_main = getConnection($host, $username, $password, 'fashion_shopp');
 
 // Lấy thông tin shop hiện tại
 $sql_shop = "SELECT id, name FROM shop WHERE db_name = ?";

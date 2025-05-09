@@ -1,23 +1,18 @@
 <?php
 session_start();
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../login_view.php");
     exit();
 }
 
-// Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ cho PHP
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Bao gồm file kết nối cơ sở dữ liệu
 include '../config/db_connect.php';
 
-// Hàm lấy kết nối đến cơ sở dữ liệu
 function getConnection($host, $username, $password, $dbname) {
     $conn = new mysqli($host, $username, $password, $dbname);
     if ($conn->connect_error) {
@@ -27,43 +22,41 @@ function getConnection($host, $username, $password, $dbname) {
     return $conn;
 }
 
-// Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
-// Lấy tên cơ sở từ bảng shop
 $conn_main = getConnection($host, $username, $password, 'fashion_shopp');
-$sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
-$stmt_shop_name = $conn_main->prepare($sql_shop_name);
-if ($stmt_shop_name === false) {
-    die("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
+$sql_shop = "SELECT id, name FROM shop WHERE db_name = ?";
+$stmt_shop = $conn_main->prepare($sql_shop);
+if ($stmt_shop === false) {
+    die("Lỗi chuẩn bị truy vấn shop: " . $conn_main->error);
 }
-$stmt_shop_name->bind_param('s', $shop_db);
-$stmt_shop_name->execute();
-$result_shop_name = $stmt_shop_name->get_result();
-$shop_row = $result_shop_name->fetch_assoc();
+$stmt_shop->bind_param('s', $shop_db);
+$stmt_shop->execute();
+$result_shop = $stmt_shop->get_result();
+$shop_row = $result_shop->fetch_assoc();
 $shop_name = $shop_row['name'] ?? $shop_db;
+$shop_id = $shop_row['id'] ?? 1;
 if (!$shop_row) {
-    error_log("Không tìm thấy name cho db_name = '$shop_db' trong bảng shop.");
+    error_log("Không tìm thấy shop cho db_name = '$shop_db' trong bảng shop.");
 }
-$stmt_shop_name->close();
+$stmt_shop->close();
 
-// Kết nối đến cơ sở dữ liệu của shop
 $conn = getConnection($host, $username, $password, $shop_db);
 
-// Lấy danh sách sản phẩm và tồn kho, bao gồm cột image
-$sql_inventory = "SELECT p.id, p.name AS product_name, p.price, p.image, c.name AS category_name, IFNULL(i.quantity, 0) AS stock_quantity
+$sql_inventory = "SELECT p.id, p.name AS product_name, p.price, p.image, COALESCE(i.quantity, 0) AS stock_quantity, c.name AS category_name
                   FROM `$shop_db`.product p
-                  LEFT JOIN `$shop_db`.category c ON p.category_id = c.id
-                  LEFT JOIN `$shop_db`.inventory i ON p.id = i.product_id";
-$result_inventory = $conn->query($sql_inventory);
-if ($result_inventory === false) {
-    die("Lỗi truy vấn tồn kho: " . $conn->error);
+                  LEFT JOIN fashion_shopp.category c ON p.category_id = c.id
+                  LEFT JOIN `$shop_db`.inventory i ON p.id = i.product_id AND i.shop_id = ?";
+$stmt_inventory = $conn->prepare($sql_inventory);
+if ($stmt_inventory === false) {
+    die("Lỗi chuẩn bị truy vấn tồn kho: " . $conn->error);
 }
+$stmt_inventory->bind_param('i', $shop_id);
+$stmt_inventory->execute();
+$result_inventory = $stmt_inventory->get_result();
 
-// Lấy tab hiện tại từ query string
 $tab = isset($_GET['tab']) ? $_GET['tab'] : 'all';
 
-// Định nghĩa đường dẫn gốc của thư mục ảnh (tương đối từ gốc website)
 $image_base_url = "/assets/images/";
 $image_default_url = "/datn/assets/images/default.jpg";
 ?>
@@ -88,7 +81,6 @@ $image_default_url = "/datn/assets/images/default.jpg";
 </head>
 <body>
 <div id="main">
-    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
@@ -125,7 +117,6 @@ $image_default_url = "/datn/assets/images/default.jpg";
         </ul>
     </div>
 
-    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
@@ -145,25 +136,20 @@ $image_default_url = "/datn/assets/images/default.jpg";
         </div>
     </div>
 
-    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Quản lý tồn kho - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
+            <h1>Quản lý tồn kho - Cơ sở: <?php echo htmlspecialchars($shop_name); ?> (DB: <?php echo htmlspecialchars($shop_db); ?>)</h1>
             <div class="actions">
-                <!-- Không có nút thao tác -->
             </div>
         </header>
 
-        <!-- Tabs -->
         <div class="tabs">
             <a href="?tab=all" class="tab <?php echo $tab === 'all' ? 'active' : ''; ?>" data-tab="all">Tất cả</a>
             <a href="?tab=in-stock" class="tab <?php echo $tab === 'in-stock' ? 'active' : ''; ?>" data-tab="in-stock">Còn hàng</a>
             <a href="?tab=out-of-stock" class="tab <?php echo $tab === 'out-of-stock' ? 'active' : ''; ?>" data-tab="out-of-stock">Hết hàng</a>
         </div>
 
-        <!-- Nội dung của các tab -->
         <div class="tab-content">
-            <!-- Tab Tất cả -->
             <div id="all" class="tab-pane <?php echo $tab === 'all' ? 'active' : ''; ?>">
                 <table class="table table-hover">
                     <thead>
@@ -178,28 +164,19 @@ $image_default_url = "/datn/assets/images/default.jpg";
                     </tr>
                     </thead>
                     <tbody>
-                    <?php
-                    $result_inventory->data_seek(0); // Reset con trỏ kết quả
-                    while ($row = $result_inventory->fetch_assoc()):
+                    <?php while ($row = $result_inventory->fetch_assoc()):
                         $stock_quantity = $row['stock_quantity'];
-                        // Xử lý cột image (kiểu BLOB, nhưng chứa đường dẫn file dưới dạng chuỗi)
                         $image_value = $row['image'];
                         if (!empty($image_value)) {
-                            // Sử dụng đường dẫn tuyệt đối từ gốc website, thêm /datn/
                             $image_url = '/datn/' . $image_value;
                         } else {
-                            // Nếu không có ảnh, sử dụng ảnh mặc định
                             $image_url = $image_default_url;
                         }
-                        // Đường dẫn tuyệt đối để kiểm tra file trên server
-                        // Loại bỏ /datn khỏi $image_url vì $_SERVER['DOCUMENT_ROOT'] . '/datn' đã bao gồm /datn
-                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', (strpos($image_url, 'http') === 0 ? parse_url($image_url, PHP_URL_PATH) : $image_url));
+                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', $image_url);
                         ?>
                         <tr>
                             <td>
-                                <?php if (file_exists($image_file_path) && strpos($image_url, 'http') !== 0): ?>
-                                    <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
-                                <?php elseif (strpos($image_url, 'http') === 0): ?>
+                                <?php if (file_exists($image_file_path)): ?>
                                     <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
                                 <?php else: ?>
                                     <span class="text-danger">Ảnh không tồn tại</span>
@@ -222,7 +199,6 @@ $image_default_url = "/datn/assets/images/default.jpg";
                 </table>
             </div>
 
-            <!-- Tab Còn hàng -->
             <div id="in-stock" class="tab-pane <?php echo $tab === 'in-stock' ? 'active' : ''; ?>">
                 <table class="table table-hover">
                     <thead>
@@ -238,23 +214,21 @@ $image_default_url = "/datn/assets/images/default.jpg";
                     </thead>
                     <tbody>
                     <?php
-                    $result_inventory->data_seek(0); // Reset con trỏ kết quả
+                    $result_inventory->data_seek(0);
                     while ($row = $result_inventory->fetch_assoc()):
                         $stock_quantity = $row['stock_quantity'];
-                        if ($stock_quantity <= 0) continue; // Chỉ hiển thị sản phẩm còn hàng
+                        if ($stock_quantity <= 0) continue;
                         $image_value = $row['image'];
                         if (!empty($image_value)) {
                             $image_url = '/datn/' . $image_value;
                         } else {
                             $image_url = $image_default_url;
                         }
-                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', (strpos($image_url, 'http') === 0 ? parse_url($image_url, PHP_URL_PATH) : $image_url));
+                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', $image_url);
                         ?>
                         <tr>
                             <td>
-                                <?php if (file_exists($image_file_path) && strpos($image_url, 'http') !== 0): ?>
-                                    <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
-                                <?php elseif (strpos($image_url, 'http') === 0): ?>
+                                <?php if (file_exists($image_file_path)): ?>
                                     <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
                                 <?php else: ?>
                                     <span class="text-danger">Ảnh không tồn tại</span>
@@ -273,7 +247,6 @@ $image_default_url = "/datn/assets/images/default.jpg";
                 </table>
             </div>
 
-            <!-- Tab Hết hàng -->
             <div id="out-of-stock" class="tab-pane <?php echo $tab === 'out-of-stock' ? 'active' : ''; ?>">
                 <table class="table table-hover">
                     <thead>
@@ -289,23 +262,21 @@ $image_default_url = "/datn/assets/images/default.jpg";
                     </thead>
                     <tbody>
                     <?php
-                    $result_inventory->data_seek(0); // Reset con trỏ kết quả
+                    $result_inventory->data_seek(0);
                     while ($row = $result_inventory->fetch_assoc()):
                         $stock_quantity = $row['stock_quantity'];
-                        if ($stock_quantity > 0) continue; // Chỉ hiển thị sản phẩm hết hàng
+                        if ($stock_quantity > 0) continue;
                         $image_value = $row['image'];
                         if (!empty($image_value)) {
                             $image_url = '/datn/' . $image_value;
                         } else {
                             $image_url = $image_default_url;
                         }
-                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', (strpos($image_url, 'http') === 0 ? parse_url($image_url, PHP_URL_PATH) : $image_url));
+                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', $image_url);
                         ?>
                         <tr>
                             <td>
-                                <?php if (file_exists($image_file_path) && strpos($image_url, 'http') !== 0): ?>
-                                    <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
-                                <?php elseif (strpos($image_url, 'http') === 0): ?>
+                                <?php if (file_exists($image_file_path)): ?>
                                     <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
                                 <?php else: ?>
                                     <span class="text-danger">Ảnh không tồn tại</span>
@@ -328,8 +299,8 @@ $image_default_url = "/datn/assets/images/default.jpg";
 </div>
 
 <?php
-// Đóng kết nối
 $result_inventory->free();
+$stmt_inventory->close();
 $conn->close();
 $conn_main->close();
 ?>

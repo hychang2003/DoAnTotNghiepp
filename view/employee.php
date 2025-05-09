@@ -28,8 +28,11 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 include_once '../config/db_connect.php';
 include_once '../models/EmployeeModel.php';
 
-// Khởi tạo Model
-$model = new EmployeeModel($host, $username, $password, 'fashion_shopp');
+// Lấy cơ sở hiện tại từ session
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+
+// Khởi tạo Model với cơ sở hiện tại
+$model = new EmployeeModel($host, $username, $password, $shop_db);
 
 // Lấy danh sách nhân viên
 try {
@@ -39,11 +42,30 @@ try {
     $employees = [];
 }
 
+// Lấy tên cửa hàng từ fashion_shopp
+$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_common->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+    $shop_name = $shop_db;
+} else {
+    $conn_common->set_charset("utf8mb4");
+    $sql = "SELECT name FROM shop WHERE db_name = ?";
+    $stmt = $conn_common->prepare($sql);
+    $stmt->bind_param('s', $shop_db);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
+    $stmt->close();
+    $conn_common->close();
+}
+
 // Đóng kết nối
 $model->close();
 
 $session_username = $_SESSION['username'] ?? 'Khách';
-$shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
+
+// Debug
+error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_name");
 ?>
 
 <!DOCTYPE html>
@@ -102,18 +124,15 @@ $shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
                 <input type="text" class="form-control" placeholder="Tìm kiếm...">
                 <button class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
-            <div class="d-flex align-items-center">
-
-                <div class="dropdown">
-                    <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                        <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
-                        <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
-                        <li><a class="dropdown-item" href="../logout.php">Đăng xuất</a></li>
-                    </ul>
-                </div>
+            <div class="dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                    <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
+                    <span class="fw-bold"><?php echo htmlspecialchars($session_username); ?></span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                    <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
+                    <li><a class="dropdown-item" href="../logout.php">Đăng xuất</a></li>
+                </ul>
             </div>
         </div>
     </div>
@@ -169,7 +188,7 @@ $shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="7" class="text-center">Không có nhân viên nào.</td>
+                            <td colspan="7" class="text-center">Không có nhân划</td>
                         </tr>
                     <?php endif; ?>
                     </tbody>
@@ -177,9 +196,8 @@ $shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
             </div>
         </div>
     </div>
-</div>
 
-<script src="../assets/js/script.js"></script>
-<script src="../assets/js/bootstrap.bundle.min.js"></script>
+    <script src="../assets/js/script.js"></script>
+    <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

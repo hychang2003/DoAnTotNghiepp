@@ -3,28 +3,48 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     error_log("Chuyển hướng đến login_view.php do không đăng nhập");
     header("Location: ../login_view.php");
     exit();
 }
 
-// Kiểm tra quyền admin
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     error_log("Chuyển hướng đến index.php do không phải admin");
     header("Location: ../index.php?error=access_denied");
     exit();
 }
 
-// Khai báo các biến
+include '../config/db_connect.php';
+$conn_main = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_main->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_main->connect_error);
+    header("Location: ../index.php?error=" . urlencode("Lỗi kết nối cơ sở dữ liệu."));
+    exit();
+}
+$conn_main->set_charset("utf8mb4");
+
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+$sql_shop = "SELECT id FROM shop WHERE db_name = ?";
+$stmt_shop = $conn_main->prepare($sql_shop);
+if ($stmt_shop === false) {
+    error_log("Lỗi chuẩn bị truy vấn shop: " . $conn_main->error);
+    header("Location: ../index.php?error=" . urlencode("Lỗi truy vấn cơ sở."));
+    exit();
+}
+$stmt_shop->bind_param('s', $shop_db);
+$stmt_shop->execute();
+$result_shop = $stmt_shop->get_result();
+$shop_id = $result_shop->fetch_assoc()['id'] ?? 1;
+$stmt_shop->close();
+$conn_main->close();
+
 $session_username = $_SESSION['username'] ?? 'Khách';
 $shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
 $role = $_SESSION['role'] ?? '';
 $errors = isset($_SESSION['form_errors']) ? $_SESSION['form_errors'] : (isset($_GET['error']) ? [$_GET['error']] : []);
 $form_data = isset($_SESSION['form_data']) ? $_SESSION['form_data'] : [];
 
-// Xóa dữ liệu tạm sau khi sử dụng
 unset($_SESSION['form_errors']);
 unset($_SESSION['form_data']);
 ?>
@@ -41,7 +61,6 @@ unset($_SESSION['form_data']);
 </head>
 <body>
 <div id="main">
-    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
@@ -78,7 +97,6 @@ unset($_SESSION['form_data']);
         </ul>
     </div>
 
-    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
@@ -86,7 +104,6 @@ unset($_SESSION['form_data']);
                 <button class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
             <div class="d-flex align-items-center">
-
                 <div class="dropdown">
                     <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                         <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
@@ -101,13 +118,11 @@ unset($_SESSION['form_data']);
         </div>
     </div>
 
-    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
             <h1>Thêm nhân viên mới - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
-        <!-- Thông báo lỗi -->
         <?php if (!empty($errors)): ?>
             <div class="alert alert-danger" role="alert">
                 <?php foreach ($errors as $error): ?>
@@ -116,10 +131,10 @@ unset($_SESSION['form_data']);
             </div>
         <?php endif; ?>
 
-        <!-- Form thêm nhân viên -->
         <div class="card mt-3">
             <div class="card-body">
                 <form method="POST" action="../controllers/EmployeeController.php?action=add">
+                    <input type="hidden" name="shop_id" value="<?php echo htmlspecialchars($shop_id); ?>">
                     <div class="mb-3">
                         <label for="username" class="form-label">Tên đăng nhập <span class="text-danger">*</span></label>
                         <input type="text" class="form-control" id="username" name="username" placeholder="Nhập tên đăng nhập" value="<?php echo isset($form_data['username']) ? htmlspecialchars($form_data['username']) : ''; ?>" required>

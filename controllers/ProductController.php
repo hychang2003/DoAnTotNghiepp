@@ -3,40 +3,48 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     error_log("Phiên đăng nhập không hợp lệ: " . print_r($_SESSION, true));
     header("Location: ../login_view.php");
     exit();
 }
 
-// Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Bao gồm file kết nối cơ sở dữ liệu và model
 include_once '../config/db_connect.php';
 include_once '../models/ProductModel.php';
 
-// Lấy cơ sở hiện tại từ session, đảm bảo đúng tên cơ sở dữ liệu
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
 error_log("session_username được gán: " . $session_username . ", shop_db: " . $shop_db);
 
-// Kiểm tra session_username để ngăn truy cập trực tiếp
 if (!isset($session_username) || empty($session_username)) {
     error_log("session_username không được thiết lập hoặc rỗng");
     header("Location: ../login_view.php");
     exit();
 }
 
-// Khởi tạo Model
+$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_common->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+    $shop_id = 1;
+} else {
+    $conn_common->set_charset("utf8mb4");
+    $sql = "SELECT id FROM shop WHERE db_name = ?";
+    $stmt = $conn_common->prepare($sql);
+    $stmt->bind_param('s', $shop_db);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $shop_id = $result->num_rows > 0 ? $result->fetch_assoc()['id'] : 1;
+    $stmt->close();
+    $conn_common->close();
+}
+
 $model = new ProductModel($host, $username, $password, $shop_db);
 
-// Xử lý các hành động
 $action = $_GET['action'] ?? '';
 
 if ($action === 'delete') {
-    // Xử lý xóa sản phẩm
     $product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($product_id > 0) {
         try {
@@ -58,11 +66,10 @@ if ($action === 'delete') {
 }
 
 if ($action === 'fetch') {
-    // Xử lý lấy danh sách sản phẩm qua AJAX
     header('Content-Type: application/json');
     $response = ['error' => '', 'products' => []];
     try {
-        $response['products'] = $model->fetchProducts();
+        $response['products'] = $model->fetchProducts($shop_id);
     } catch (Exception $e) {
         $response['error'] = "Lỗi khi lấy danh sách sản phẩm: " . $e->getMessage();
         error_log("Lỗi fetch products: " . $e->getMessage());
@@ -73,12 +80,10 @@ if ($action === 'fetch') {
 }
 
 if ($action === 'list') {
-    // Lấy danh sách sản phẩm
     $products = [];
     $error = '';
     $success = '';
 
-    // Xử lý thông báo từ query string
     if (isset($_GET['added']) && $_GET['added'] === 'success') {
         $success = "Thêm sản phẩm thành công!";
     } elseif (isset($_GET['product_deleted']) && $_GET['product_deleted'] === 'success') {
@@ -90,15 +95,13 @@ if ($action === 'list') {
     }
 
     try {
-        $products = $model->getProducts();
+        $products = $model->getProducts($shop_id);
     } catch (Exception $e) {
         error_log("Lỗi khi lấy danh sách sản phẩm: " . $e->getMessage());
         $error = "Lỗi khi lấy danh sách sản phẩm: " . $e->getMessage();
     }
-    // Tải View danh sách sản phẩm
     include '../view/products_list_view.php';
 } else {
-    // Lấy dữ liệu danh mục và chương trình khuyến mãi
     $categories = [];
     $flash_sales = [];
     $error = '';
@@ -113,7 +116,6 @@ if ($action === 'list') {
         $error = "Lỗi khi lấy dữ liệu danh mục hoặc khuyến mãi: " . $e->getMessage();
     }
 
-    // Xử lý thêm sản phẩm
     $success = '';
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
@@ -127,7 +129,6 @@ if ($action === 'list') {
         $flash_sale_id = !empty($_POST['flash_sale_id']) ? intval($_POST['flash_sale_id']) : null;
         $image = '';
 
-        // Xử lý upload ảnh
         if (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
             $allowed_types = ['image/jpeg', 'image/png', 'image/gif'];
             if (!in_array($_FILES['image']['type'], $allowed_types)) {
@@ -151,7 +152,6 @@ if ($action === 'list') {
             }
         }
 
-        // Kiểm tra dữ liệu đầu vào
         if (empty($name) || $price <= 0 || $cost_price < 0 || $quantity < 0 || $category_id <= 0 || empty($unit)) {
             $error = "Vui lòng nhập đầy đủ và chính xác thông tin sản phẩm!";
         } else {
@@ -167,10 +167,8 @@ if ($action === 'list') {
         }
     }
 
-    // Tải View thêm sản phẩm
     include '../view/add_product_view.php';
 }
 
-// Đóng kết nối
 $model->close();
 ?>

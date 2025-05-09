@@ -3,25 +3,43 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../login_view.php");
     exit();
 }
 
-// Kiểm tra các biến cần thiết
-if (!isset($customers) || !isset($users) || !isset($products) || !isset($discount)) {
-    header("Location: ../controllers/OrderController.php");
-    exit();
-}
+include_once '../config/db_connect.php';
+include_once '../models/OrderModel.php';
 
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
 $shop_name = $_SESSION['shop_name'] ?? 'Cửa hàng mặc định';
-$user_id = $_SESSION['user_id'] ?? null; // Lấy user_id từ session
+$user_id = $_SESSION['user_id'] ?? null;
+
+$model = new OrderModel($host, $username, $password, $shop_db);
+
+$debug_messages = [];
+$debug_messages[] = "SESSION user_id: " . ($user_id ?? 'null');
+try {
+    $discount = $model->getActiveFlashSale();
+    $customers = $model->getCustomers();
+    $users = $model->getUsers();
+    $products = $model->getProducts();
+    $debug_messages[] = "Dữ liệu ban đầu: customers=" . count($customers) . ", users=" . count($users) . ", products=" . count($products) . ", discount=$discount";
+} catch (Exception $e) {
+    $debug_messages[] = "Lỗi khi lấy dữ liệu: " . $e->getMessage();
+    $discount = 0;
+    $customers = [];
+    $users = [];
+    $products = [];
+}
+
 $error = isset($_SESSION['form_errors']) ? implode('<br>', $_SESSION['form_errors']) : '';
 $success = isset($_SESSION['success']) ? $_SESSION['success'] : '';
+$debug_output = isset($_SESSION['debug_messages']) ? implode('<br>', $_SESSION['debug_messages']) : '';
 unset($_SESSION['form_errors']);
 unset($_SESSION['success']);
+unset($_SESSION['debug_messages']);
 ?>
 
 <!DOCTYPE html>
@@ -36,7 +54,6 @@ unset($_SESSION['success']);
 </head>
 <body>
 <div id="main">
-    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
@@ -48,32 +65,31 @@ unset($_SESSION['success']);
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
-                    <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
+                    <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="inventory_stock_view.php">Tồn kho</a></li>
-                    <li><a href="../view/import_goods.php">Nhập hàng</a></li>
-                    <li><a href="../view/export_goods.php">Xuất hàng</a></li>
+                    <li><a href="import_goods.php">Nhập hàng</a></li>
+                    <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
 
-    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
@@ -93,11 +109,21 @@ unset($_SESSION['success']);
         </div>
     </div>
 
-    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
             <h1>Thêm hóa đơn mới</h1>
         </header>
+
+        <!-- Debug messages -->
+        <?php if (!empty($debug_messages) || !empty($debug_output)): ?>
+            <div class="alert alert-info">
+                <strong>Debug:</strong><br>
+                <?php echo implode('<br>', $debug_messages); ?>
+                <?php if (!empty($debug_output)): ?>
+                    <br><?php echo $debug_output; ?>
+                <?php endif; ?>
+            </div>
+        <?php endif; ?>
 
         <!-- Thông báo -->
         <?php if (!empty($error)): ?>
@@ -127,7 +153,6 @@ unset($_SESSION['success']);
                         </div>
                     </div>
 
-                    <!-- Bảng danh sách sản phẩm -->
                     <div class="mb-3">
                         <label class="form-label">Chọn sản phẩm</label>
                         <table class="table table-bordered" id="productTable">
@@ -168,7 +193,6 @@ unset($_SESSION['success']);
                         </table>
                     </div>
 
-                    <!-- Tổng tiền -->
                     <div class="mb-3">
                         <label class="form-label">Tổng tiền (VNĐ)</label>
                         <input type="text" class="form-control" id="totalPrice" readonly value="0">
@@ -185,7 +209,7 @@ unset($_SESSION['success']);
                     </div>
 
                     <button type="submit" class="btn btn-primary">Thêm hóa đơn</button>
-                    <a href="../view/order.php" class="btn btn-secondary">Quay lại</a>
+                    <a href="order.php" class="btn btn-secondary">Quay lại</a>
                 </form>
             </div>
         </div>
@@ -200,7 +224,6 @@ unset($_SESSION['success']);
         const totalPriceInput = document.getElementById('totalPrice');
         const totalPriceRawInput = document.getElementById('totalPriceRaw');
 
-        // Xử lý khi checkbox thay đổi
         productTableBody.addEventListener('change', function (e) {
             if (e.target.classList.contains('product-checkbox')) {
                 const row = e.target.closest('tr');
@@ -216,7 +239,6 @@ unset($_SESSION['success']);
             }
         });
 
-        // Xử lý thay đổi số lượng
         productTableBody.addEventListener('input', function (e) {
             if (e.target.classList.contains('product-quantity')) {
                 const row = e.target.closest('tr');
@@ -233,7 +255,6 @@ unset($_SESSION['success']);
             }
         });
 
-        // Tính tổng tiền
         function calculateTotal() {
             let total = 0;
             const rows = productTableBody.querySelectorAll('tr');

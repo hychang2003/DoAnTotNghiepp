@@ -3,6 +3,12 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Nếu đã đăng nhập, chuyển hướng về trang chính
+if (isset($_SESSION['loggedin']) && $_SESSION['loggedin'] === true) {
+    header("Location: ../index.php");
+    exit();
+}
+
 // Lấy thông báo lỗi từ session (nếu có)
 $error = isset($_SESSION['error']) ? $_SESSION['error'] : '';
 // Xóa thông báo lỗi sau khi lấy
@@ -20,6 +26,14 @@ unset($_SESSION['error']);
         .alert {
             margin-bottom: 20px;
         }
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: none;
+        }
     </style>
 </head>
 <body>
@@ -30,7 +44,7 @@ unset($_SESSION['error']);
                 <div class="card-header">
                     <h3 class="text-center">Đăng nhập</h3>
                 </div>
-                <div class coi="card-body">
+                <div class="card-body">
                     <?php if (!empty($error)): ?>
                         <div class="alert alert-danger alert-dismissible fade show" role="alert">
                             <?php echo htmlspecialchars($error); ?>

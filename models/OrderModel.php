@@ -17,7 +17,6 @@ class OrderModel {
     private function connect() {
         $this->conn = new mysqli($this->host, $this->username, $this->password, $this->shop_dbname);
         if ($this->conn->connect_error) {
-            error_log("Lỗi kết nối đến cơ sở dữ liệu: " . $this->conn->connect_error);
             throw new Exception("Lỗi kết nối đến cơ sở dữ liệu: " . $this->conn->connect_error);
         }
         $this->conn->set_charset("utf8mb4");
@@ -33,7 +32,6 @@ class OrderModel {
                 ORDER BY o.order_date DESC";
         $result = $this->conn->query($sql);
         if ($result === false) {
-            error_log("Lỗi truy vấn danh sách đơn hàng: " . $this->conn->error);
             throw new Exception("Lỗi truy vấn danh sách đơn hàng: " . $this->conn->error);
         }
         $orders = [];
@@ -53,7 +51,6 @@ class OrderModel {
                 WHERE o.id = ?";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
-            error_log("Lỗi chuẩn bị truy vấn đơn hàng theo ID: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn đơn hàng theo ID: " . $this->conn->error);
         }
         $stmt->bind_param('i', $order_id);
@@ -65,14 +62,20 @@ class OrderModel {
     }
 
     public function getActiveFlashSale() {
+        $conn_common = new mysqli($this->host, $this->username, $this->password, 'fashion_shopp');
+        if ($conn_common->connect_error) {
+            throw new Exception("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+        }
+        $conn_common->set_charset("utf8mb4");
+
         $sql = "SELECT discount FROM flash_sale WHERE start_date <= NOW() AND end_date >= NOW() AND status = 1 LIMIT 1";
-        $result = $this->conn->query($sql);
+        $result = $conn_common->query($sql);
         if ($result === false) {
-            error_log("Lỗi truy vấn flash_sale: " . $this->conn->error);
-            throw new Exception("Lỗi truy vấn flash_sale: " . $this->conn->error);
+            throw new Exception("Lỗi truy vấn flash_sale: " . $conn_common->error);
         }
         $row = $result->fetch_assoc();
         $result->free();
+        $conn_common->close();
         return $row ? floatval($row['discount']) : 0;
     }
 
@@ -80,7 +83,6 @@ class OrderModel {
         $sql = "SELECT id, name FROM customer";
         $result = $this->conn->query($sql);
         if ($result === false) {
-            error_log("Lỗi truy vấn khách hàng: " . $this->conn->error);
             throw new Exception("Lỗi truy vấn khách hàng: " . $this->conn->error);
         }
         $customers = [];
@@ -95,7 +97,6 @@ class OrderModel {
         $sql = "SELECT id, username AS name FROM users";
         $result = $this->conn->query($sql);
         if ($result === false) {
-            error_log("Lỗi truy vấn người dùng: " . $this->conn->error);
             throw new Exception("Lỗi truy vấn người dùng: " . $this->conn->error);
         }
         $users = [];
@@ -107,10 +108,9 @@ class OrderModel {
     }
 
     public function getProducts() {
-        $sql = "SELECT id, name, price, quantity FROM product";
+        $sql = "SELECT id, name, price FROM product";
         $result = $this->conn->query($sql);
         if ($result === false) {
-            error_log("Lỗi truy vấn sản phẩm: " . $this->conn->error);
             throw new Exception("Lỗi truy vấn sản phẩm: " . $this->conn->error);
         }
         $products = [];
@@ -122,8 +122,11 @@ class OrderModel {
     }
 
     public function addOrder($customer_id, $employee_id, $order_date, $total_price, $status, $products) {
+        $debug_messages = [];
         $this->conn->begin_transaction();
         try {
+            $debug_messages[] = "Bắt đầu addOrder: customer_id=$customer_id, employee_id=$employee_id, order_date=$order_date, total_price=$total_price, status=$status";
+
             if ($employee_id !== null) {
                 $sql_check_user = "SELECT id FROM users WHERE id = ?";
                 $stmt_check_user = $this->conn->prepare($sql_check_user);
@@ -131,35 +134,57 @@ class OrderModel {
                 $stmt_check_user->execute();
                 $result_check_user = $stmt_check_user->get_result();
                 if ($result_check_user->num_rows === 0) {
+                    $debug_messages[] = "ID người dùng không hợp lệ: $employee_id";
                     throw new Exception("ID người dùng không hợp lệ: $employee_id");
                 }
                 $stmt_check_user->close();
+            }
+
+            // Kiểm tra tồn kho
+            foreach ($products as $product) {
+                $product_id = intval($product['id']);
+                $quantity = intval($product['quantity']);
+                if ($quantity > 0) {
+                    $sql_check_inventory = "SELECT quantity FROM inventory WHERE product_id = ? AND shop_id = 11";
+                    $stmt_check_inventory = $this->conn->prepare($sql_check_inventory);
+                    $stmt_check_inventory->bind_param('i', $product_id);
+                    $stmt_check_inventory->execute();
+                    $result_inventory = $stmt_check_inventory->get_result();
+                    $inventory = $result_inventory->fetch_assoc();
+                    $stmt_check_inventory->close();
+
+                    if (!$inventory || $inventory['quantity'] < $quantity) {
+                        $debug_messages[] = "Sản phẩm ID $product_id không đủ tồn kho: yêu cầu $quantity, còn " . ($inventory['quantity'] ?? 0);
+                        throw new Exception("Sản phẩm ID $product_id không đủ tồn kho: yêu cầu $quantity, còn " . ($inventory['quantity'] ?? 0));
+                    }
+                }
             }
 
             $sql_order = "INSERT INTO `order` (customer_id, employee_id, order_date, total_price, status, created_at) 
                           VALUES (?, ?, ?, ?, ?, NOW())";
             $stmt_order = $this->conn->prepare($sql_order);
             if ($stmt_order === false) {
-                error_log("Lỗi chuẩn bị truy vấn đơn hàng: " . $this->conn->error);
+                $debug_messages[] = "Lỗi chuẩn bị truy vấn đơn hàng: " . $this->conn->error;
                 throw new Exception("Lỗi chuẩn bị truy vấn đơn hàng: " . $this->conn->error);
             }
             $stmt_order->bind_param('iisds', $customer_id, $employee_id, $order_date, $total_price, $status);
             $stmt_order->execute();
             $order_id = $this->conn->insert_id;
+            $debug_messages[] = "Thêm order thành công, order_id: $order_id";
             $stmt_order->close();
 
             $sql_detail = "INSERT INTO `order_detail` (order_id, product_id, quantity, unit_price, discount, created_at) 
                            VALUES (?, ?, ?, ?, ?, NOW())";
             $stmt_detail = $this->conn->prepare($sql_detail);
             if ($stmt_detail === false) {
-                error_log("Lỗi chuẩn bị truy vấn chi tiết đơn hàng: " . $this->conn->error);
+                $debug_messages[] = "Lỗi chuẩn bị truy vấn chi tiết đơn hàng: " . $this->conn->error;
                 throw new Exception("Lỗi chuẩn bị truy vấn chi tiết đơn hàng: " . $this->conn->error);
             }
 
-            $sql_inventory = "UPDATE `product` SET quantity = quantity - ? WHERE id = ?";
-            $stmt_inventory = $this->conn->prepare($sql_inventory);
-            if ($stmt_inventory === false) {
-                error_log("Lỗi chuẩn bị truy vấn cập nhật tồn kho: " . $this->conn->error);
+            $sql_update_inventory = "UPDATE inventory SET quantity = quantity - ?, last_updated = NOW() WHERE product_id = ? AND shop_id = 11";
+            $stmt_update_inventory = $this->conn->prepare($sql_update_inventory);
+            if ($stmt_update_inventory === false) {
+                $debug_messages[] = "Lỗi chuẩn bị truy vấn cập nhật tồn kho: " . $this->conn->error;
                 throw new Exception("Lỗi chuẩn bị truy vấn cập nhật tồn kho: " . $this->conn->error);
             }
 
@@ -171,33 +196,28 @@ class OrderModel {
                 $discount_amount = ($unit_price * $discount_percent) / 100;
 
                 if ($quantity > 0) {
+                    // Thêm chi tiết đơn hàng
+                    $debug_messages[] = "Thêm order_detail: order_id=$order_id, product_id=$product_id, quantity=$quantity, unit_price=$unit_price, discount=$discount_amount";
                     $stmt_detail->bind_param('iiidd', $order_id, $product_id, $quantity, $unit_price, $discount_amount);
                     $stmt_detail->execute();
 
-                    $stmt_inventory->bind_param('ii', $quantity, $product_id);
-                    $stmt_inventory->execute();
-
-                    $sql_check = "SELECT quantity FROM `product` WHERE id = ?";
-                    $stmt_check = $this->conn->prepare($sql_check);
-                    $stmt_check->bind_param('i', $product_id);
-                    $stmt_check->execute();
-                    $result_check = $stmt_check->get_result();
-                    $inventory = $result_check->fetch_assoc();
-                    if ($inventory === null || $inventory['quantity'] < 0) {
-                        error_log("Số lượng tồn kho không đủ cho sản phẩm ID $product_id!");
-                        throw new Exception("Số lượng tồn kho không đủ cho sản phẩm ID $product_id!");
-                    }
-                    $stmt_check->close();
+                    // Cập nhật tồn kho
+                    $debug_messages[] = "Cập nhật tồn kho: product_id=$product_id, giảm $quantity";
+                    $stmt_update_inventory->bind_param('ii', $quantity, $product_id);
+                    $stmt_update_inventory->execute();
                 }
             }
             $stmt_detail->close();
-            $stmt_inventory->close();
+            $stmt_update_inventory->close();
 
             $this->conn->commit();
+            $debug_messages[] = "Commit thành công, order_id: $order_id";
+            $_SESSION['debug_messages'] = array_merge($_SESSION['debug_messages'] ?? [], $debug_messages);
             return $order_id;
         } catch (Exception $e) {
             $this->conn->rollback();
-            error_log("Lỗi khi thêm đơn hàng: " . $e->getMessage());
+            $debug_messages[] = "Lỗi khi thêm đơn hàng: " . $e->getMessage();
+            $_SESSION['debug_messages'] = array_merge($_SESSION['debug_messages'] ?? [], $debug_messages);
             throw $e;
         }
     }
@@ -206,13 +226,11 @@ class OrderModel {
         $sql = "UPDATE `order` SET customer_id = ?, employee_id = ?, order_date = ?, total_price = ?, status = ? WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
-            error_log("Lỗi chuẩn bị truy vấn cập nhật đơn hàng: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn cập nhật đơn hàng: " . $this->conn->error);
         }
         $stmt->bind_param('iissdi', $customer_id, $employee_id, $order_date, $total_price, $status, $order_id);
         $result = $stmt->execute();
         if ($result === false) {
-            error_log("Lỗi thực thi truy vấn cập nhật đơn hàng: " . $stmt->error);
             throw new Exception("Lỗi thực thi truy vấn cập nhật đơn hàng: " . $stmt->error);
         }
         $stmt->close();
@@ -225,7 +243,6 @@ class OrderModel {
             $sql_delete_details = "DELETE FROM order_detail WHERE order_id = ?";
             $stmt_details = $this->conn->prepare($sql_delete_details);
             if ($stmt_details === false) {
-                error_log("Lỗi chuẩn bị truy vấn xóa chi tiết đơn hàng: " . $this->conn->error);
                 throw new Exception("Lỗi chuẩn bị truy vấn xóa chi tiết đơn hàng: " . $this->conn->error);
             }
             $stmt_details->bind_param('i', $order_id);
@@ -235,7 +252,6 @@ class OrderModel {
             $sql_delete_order = "DELETE FROM `order` WHERE id = ?";
             $stmt_order = $this->conn->prepare($sql_delete_order);
             if ($stmt_order === false) {
-                error_log("Lỗi chuẩn bị truy vấn xóa đơn hàng: " . $this->conn->error);
                 throw new Exception("Lỗi chuẩn bị truy vấn xóa đơn hàng: " . $this->conn->error);
             }
             $stmt_order->bind_param('i', $order_id);
@@ -246,7 +262,6 @@ class OrderModel {
             return true;
         } catch (Exception $e) {
             $this->conn->rollback();
-            error_log("Lỗi khi xóa đơn hàng: " . $e->getMessage());
             throw $e;
         }
     }

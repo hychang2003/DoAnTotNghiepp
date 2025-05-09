@@ -14,27 +14,39 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
 
+// Kết nối đến fashion_shopp để lấy tên cửa hàng
+$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_common->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+    $shop_name = $shop_db;
+} else {
+    $conn_common->set_charset("utf8mb4");
+    $sql = "SELECT name FROM shop WHERE db_name = ?";
+    $stmt = $conn_common->prepare($sql);
+    $stmt->bind_param('s', $shop_db);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
+    $stmt->close();
+    $conn_common->close();
+}
+
 // Khởi tạo Model
 $model = new CustomerModel($host, $username, $password, $shop_db);
-
-// Lấy tên cửa hàng
-try {
-    $shop_name = $model->getShopName('fashion_shop', $shop_db);
-} catch (Exception $e) {
-    error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
-    $shop_name = $shop_db;
-}
 
 // Lấy danh sách khách hàng
 try {
     $customers = $model->getCustomers();
 } catch (Exception $e) {
-    error_log("Lỗi khi lấy danh sách khách hàng: " . $e->getMessage());
+    error_log("Lỗi khi lấy danh sách khách hàng từ $shop_db: " . $e->getMessage());
     $customers = [];
 }
 
 // Đóng kết nối
 $model->close();
+
+// Debug
+error_log("customer.php: Using shop_db = $shop_db, shop_name = $shop_name, customers_count = " . count($customers));
 ?>
 
 <!DOCTYPE html>
@@ -109,7 +121,7 @@ $model->close();
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh sách khách hàng - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
+            <h1>Danh sách khách hàng - Cơ sở: <?php echo htmlspecialchars($shop_name); ?> (DB: <?php echo htmlspecialchars($shop_db); ?>)</h1>
         </header>
 
         <!-- Thông báo -->
@@ -169,4 +181,3 @@ $model->close();
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-?>

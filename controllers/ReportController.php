@@ -3,47 +3,61 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     error_log("Phiên đăng nhập không hợp lệ: " . print_r($_SESSION, true));
     header("Location: ../login_view.php");
     exit();
 }
 
-// Bao gồm file kết nối cơ sở dữ liệu và model
 include_once '../config/db_connect.php';
 include_once '../models/ReportModel.php';
 
-// Lấy cơ sở hiện tại từ session
-$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+$shop_db = $_SESSION['shop_db'] ?? 'shop_11';
 $session_username = $_SESSION['username'] ?? 'Khách';
 error_log("session_username được gán: " . $session_username);
 
-// Khởi tạo Model
-$model = new ReportModel($host, $username, $password, $shop_db);
-
-// Hàm định dạng tiền tệ
-function formatCurrency($number) {
-    $number = floatval($number);
-    if (floor($number) == $number) {
-        return number_format($number, 0, ',', '.');
-    }
-    return number_format($number, 2, ',', '.');
+try {
+    $model = new ReportModel($host, $username, $password, $shop_db);
+} catch (Exception $e) {
+    error_log("Lỗi khởi tạo ReportModel: " . $e->getMessage());
+    $_SESSION['form_errors'] = ["Lỗi khởi tạo mô hình dữ liệu: " . $e->getMessage()];
+    $shop_name = 'Cửa hàng mặc định';
+    $daily_revenue = ['labels' => [], 'data' => []];
+    $monthly_revenue = ['labels' => [], 'data' => []];
+    $yearly_revenue = ['labels' => [], 'data' => []];
+    $inventory = [];
+    $years = [date('Y')];
+    $profit_by_year = [];
+    $profit_by_month = [];
+    $profit_by_day = [];
+    $selected_year = date('Y');
+    $selected_month = date('m');
+    include '../view/report_view.php';
+    exit();
 }
 
-// Lấy năm và tháng từ query string, mặc định là năm và tháng hiện tại
+function formatCurrency($number) {
+    return number_format(floatval($number), 0, ',', '.') . ' VNĐ';
+}
+
+try {
+    $shop_name = $model->getShopName();
+} catch (Exception $e) {
+    error_log("Lỗi lấy tên cửa hàng: " . $e->getMessage());
+    $shop_name = 'Cửa hàng mặc định';
+}
+
 $selected_year = isset($_GET['year']) && is_numeric($_GET['year']) ? intval($_GET['year']) : date('Y');
 $selected_month = isset($_GET['month']) && is_numeric($_GET['month']) && $_GET['month'] >= 1 && $_GET['month'] <= 12 ? intval($_GET['month']) : date('m');
 
-// Lấy dữ liệu báo cáo
 try {
     $daily_revenue = $model->getDailyRevenue();
-    $monthly_revenue = $model->getMonthlyRevenue();
+    $monthly_revenue = $model->getMonthlyRevenue($selected_year);
     $yearly_revenue = $model->getYearlyRevenue();
     $inventory = $model->getInventory();
     $years = $model->getYears();
     if (empty($years)) {
-        $years = [date('Y')]; // Mặc định năm hiện tại nếu không có dữ liệu
+        $years = [date('Y')];
     }
     $profit_by_year = $model->getProfitByYear();
     $profit_by_month = $model->getProfitByMonth($selected_year);
@@ -61,9 +75,6 @@ try {
     $profit_by_day = [];
 }
 
-// Đóng kết nối
 $model->close();
-
-// Tải View
 include '../view/report_view.php';
 ?>

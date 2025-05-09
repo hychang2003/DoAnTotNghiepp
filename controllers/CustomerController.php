@@ -17,21 +17,33 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 
 // Khởi tạo các biến mặc định
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
-$shop_name = $shop_db;
 $errors = [];
 $success = '';
 $role = $_SESSION['role'] ?? '';
 $session_username = $_SESSION['username'] ?? 'Khách';
 
-// Kiểm tra $shop_db
-if ($shop_db !== 'fashion_shopp') {
-    error_log("Sai shop_db: $shop_db. Chuyển về fashion_shopp.");
-    $shop_db = 'fashion_shopp';
-    $_SESSION['shop_db'] = 'fashion_shopp';
+// Lấy tên cửa hàng từ fashion_shopp
+$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn_common->connect_error) {
+    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+    $shop_name = $shop_db;
+} else {
+    $conn_common->set_charset("utf8mb4");
+    $sql = "SELECT name FROM shop WHERE db_name = ?";
+    $stmt = $conn_common->prepare($sql);
+    $stmt->bind_param('s', $shop_db);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
+    $stmt->close();
+    $conn_common->close();
 }
 
 // Khởi tạo Model
 $model = new CustomerModel($host, $username, $password, $shop_db);
+
+// Debug
+error_log("CustomerController.php - Action: " . ($_GET['action'] ?? 'none') . ", shop_db: $shop_db, shop_name: $shop_name");
 
 // Xử lý các hành động
 $action = $_GET['action'] ?? '';
@@ -44,7 +56,7 @@ if ($action === 'delete') {
             $model->deleteCustomer($customer_id);
             header("Location: ../view/customer.php?customer_deleted=success");
         } catch (Exception $e) {
-            error_log("Lỗi xóa khách hàng ID $customer_id: " . $e->getMessage());
+            error_log("Lỗi xóa khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
             header("Location: ../view/customer.php?error=" . urlencode($e->getMessage()));
         }
     } else {
@@ -65,7 +77,7 @@ if ($action === 'delete') {
                 $errors[] = "Khách hàng không tồn tại.";
             }
         } catch (Exception $e) {
-            error_log("Lỗi lấy khách hàng ID $customer_id: " . $e->getMessage());
+            error_log("Lỗi lấy khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
             $errors[] = "Lỗi khi lấy thông tin khách hàng.";
         }
     } else {
@@ -103,18 +115,10 @@ if ($action === 'delete') {
                     $errors[] = "Lỗi khi cập nhật khách hàng.";
                 }
             } catch (Exception $e) {
-                error_log("Lỗi cập nhật khách hàng ID $customer_id: " . $e->getMessage());
+                error_log("Lỗi cập nhật khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
                 $errors[] = $e->getMessage();
             }
         }
-    }
-
-    // Lấy tên cửa hàng
-    try {
-        $shop_name = $model->getShopName('fashion_shopp', $shop_db);
-    } catch (Exception $e) {
-        error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
-        $errors[] = "Không thể lấy tên cửa hàng.";
     }
 
     // Tải View cập nhật
@@ -153,18 +157,10 @@ if ($action === 'delete') {
                     $errors[] = "Lỗi khi thêm khách hàng.";
                 }
             } catch (Exception $e) {
-                error_log("Lỗi thêm khách hàng: " . $e->getMessage());
+                error_log("Lỗi thêm khách hàng vào $shop_db: " . $e->getMessage());
                 $errors[] = $e->getMessage();
             }
         }
-    }
-
-    // Lấy tên cửa hàng
-    try {
-        $shop_name = $model->getShopName('fashion_shopp', $shop_db);
-    } catch (Exception $e) {
-        error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
-        $errors[] = "Không thể lấy tên cửa hàng.";
     }
 
     // Tải View thêm khách hàng
@@ -186,19 +182,11 @@ if ($action === 'delete') {
                 $history = $model->getCustomerHistory($customer_id);
             }
         } catch (Exception $e) {
-            error_log("Lỗi lấy lịch sử khách hàng ID $customer_id: " . $e->getMessage());
+            error_log("Lỗi lấy lịch sử khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
             $errors[] = "Lỗi khi lấy thông tin lịch sử mua hàng.";
         }
     } else {
         $errors[] = "ID khách hàng không hợp lệ.";
-    }
-
-    // Lấy tên cửa hàng
-    try {
-        $shop_name = $model->getShopName('fashion_shopp', $shop_db);
-    } catch (Exception $e) {
-        error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
-        $errors[] = "Không thể lấy tên cửa hàng.";
     }
 
     // Tải View lịch sử
@@ -206,19 +194,11 @@ if ($action === 'delete') {
     $model->close();
     exit();
 } else {
-    // Lấy tên cửa hàng
-    try {
-        $shop_name = $model->getShopName('fashion_shopp', $shop_db);
-    } catch (Exception $e) {
-        error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
-        $errors[] = "Không thể lấy tên cửa hàng.";
-    }
-
     // Lấy danh sách khách hàng
     try {
         $customers = $model->getCustomers();
     } catch (Exception $e) {
-        error_log("Lỗi khi lấy danh sách khách hàng: " . $e->getMessage());
+        error_log("Lỗi khi lấy danh sách khách hàng từ $shop_db: " . $e->getMessage());
         $customers = [];
     }
 

@@ -19,6 +19,7 @@ class CustomerModel {
     private function connect() {
         $this->conn = new mysqli($this->host, $this->username, $this->password, $this->dbname);
         if ($this->conn->connect_error) {
+            error_log("Lỗi kết nối đến $this->dbname: " . $this->conn->connect_error);
             die("Lỗi kết nối đến cơ sở dữ liệu: " . $this->conn->connect_error);
         }
         $this->conn->set_charset("utf8mb4");
@@ -28,6 +29,7 @@ class CustomerModel {
     public function getShopName($main_db, $shop_db) {
         $conn_main = new mysqli($this->host, $this->username, $this->password, $main_db);
         if ($conn_main->connect_error) {
+            error_log("Lỗi kết nối đến $main_db: " . $conn_main->connect_error);
             throw new Exception("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn_main->connect_error);
         }
         $conn_main->set_charset("utf8mb4");
@@ -35,6 +37,7 @@ class CustomerModel {
         $sql = "SELECT name FROM shop WHERE db_name = ?";
         $stmt = $conn_main->prepare($sql);
         if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
             throw new Exception("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
         }
         $stmt->bind_param('s', $shop_db);
@@ -55,6 +58,7 @@ class CustomerModel {
         $sql = "INSERT INTO customer (name, phone_number, email, address) VALUES (?, ?, ?, ?)";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn thêm khách hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn thêm khách hàng: " . $this->conn->error);
         }
         $email = $email ?: null;
@@ -63,6 +67,7 @@ class CustomerModel {
         $stmt->bind_param('ssss', $name, $phone_number, $email, $address);
         $result = $stmt->execute();
         if ($result === false) {
+            error_log("Lỗi thực thi truy vấn thêm khách hàng trong $this->dbname: " . $stmt->error);
             throw new Exception("Lỗi thực thi truy vấn thêm khách hàng: " . $stmt->error);
         }
         $stmt->close();
@@ -74,6 +79,7 @@ class CustomerModel {
         $sql = "UPDATE customer SET name = ?, phone_number = ?, email = ?, address = ? WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn cập nhật khách hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn cập nhật khách hàng: " . $this->conn->error);
         }
         $email = $email ?: null;
@@ -82,6 +88,7 @@ class CustomerModel {
         $stmt->bind_param('ssssi', $name, $phone_number, $email, $address, $customer_id);
         $result = $stmt->execute();
         if ($result === false) {
+            error_log("Lỗi thực thi truy vấn cập nhật khách hàng trong $this->dbname: " . $stmt->error);
             throw new Exception("Lỗi thực thi truy vấn cập nhật khách hàng: " . $stmt->error);
         }
         $stmt->close();
@@ -93,6 +100,7 @@ class CustomerModel {
         $sql = "SELECT id, name, phone_number, email, address FROM customer ORDER BY name ASC";
         $result = $this->conn->query($sql);
         if ($result === false) {
+            error_log("Lỗi truy vấn khách hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi truy vấn khách hàng: " . $this->conn->error);
         }
         $customers = [];
@@ -108,6 +116,7 @@ class CustomerModel {
         $sql = "SELECT id, name, phone_number, email, address FROM customer WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn khách hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn khách hàng: " . $this->conn->error);
         }
         $stmt->bind_param('i', $customer_id);
@@ -120,14 +129,23 @@ class CustomerModel {
 
     // Lấy lịch sử mua hàng của khách hàng
     public function getCustomerHistory($customer_id) {
+        // Kết nối đến fashion_shopp cho bảng product
+        $conn_common = new mysqli($this->host, $this->username, $this->password, 'fashion_shopp');
+        if ($conn_common->connect_error) {
+            error_log("Lỗi kết nối đến fashion_shopp trong getCustomerHistory: " . $conn_common->connect_error);
+            throw new Exception("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn_common->connect_error);
+        }
+        $conn_common->set_charset("utf8mb4");
+
         $sql = "SELECT o.id AS order_id, o.order_date, od.quantity, od.unit_price, od.discount, p.name AS product_name
-                FROM `order` o
-                LEFT JOIN order_detail od ON o.id = od.order_id
-                LEFT JOIN product p ON od.product_id = p.id
+                FROM `$this->dbname`.`order` o
+                LEFT JOIN `$this->dbname`.order_detail od ON o.id = od.order_id
+                LEFT JOIN `fashion_shopp`.product p ON od.product_id = p.id
                 WHERE o.customer_id = ?
                 ORDER BY o.order_date DESC";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn lịch sử mua hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn lịch sử mua hàng: " . $this->conn->error);
         }
         $stmt->bind_param('i', $customer_id);
@@ -139,6 +157,7 @@ class CustomerModel {
         }
         $result->free();
         $stmt->close();
+        $conn_common->close();
         return $history;
     }
 
@@ -148,6 +167,7 @@ class CustomerModel {
         $sql_check_orders = "SELECT COUNT(*) as order_count FROM `order` WHERE customer_id = ?";
         $stmt_check_orders = $this->conn->prepare($sql_check_orders);
         if ($stmt_check_orders === false) {
+            error_log("Lỗi chuẩn bị truy vấn kiểm tra đơn hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn kiểm tra đơn hàng: " . $this->conn->error);
         }
         $stmt_check_orders->bind_param('i', $customer_id);
@@ -164,11 +184,13 @@ class CustomerModel {
         $sql = "DELETE FROM customer WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
         if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn xóa khách hàng trong $this->dbname: " . $this->conn->error);
             throw new Exception("Lỗi chuẩn bị truy vấn xóa khách hàng: " . $this->conn->error);
         }
         $stmt->bind_param('i', $customer_id);
         $result = $stmt->execute();
         if ($result === false) {
+            error_log("Lỗi thực thi truy vấn xóa khách hàng trong $this->dbname: " . $stmt->error);
             throw new Exception("Lỗi thực thi truy vấn xóa khách hàng: " . $stmt->error);
         }
         $stmt->close();
