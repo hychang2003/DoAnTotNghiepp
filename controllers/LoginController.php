@@ -8,117 +8,91 @@ header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
 // Kết nối cơ sở dữ liệu
-include '../config/db_connect.php';
-
-// Khởi tạo kết nối tới fashion_shopp
-$conn = new mysqli($host, $username, $password, 'fashion_shopp');
-if ($conn->connect_error) {
-    error_log("Lỗi kết nối tới fashion_shopp: " . $conn->connect_error);
-    $_SESSION['error'] = "Lỗi hệ thống: Không thể kết nối tới cơ sở dữ liệu.";
-    header("Location: ../view/login_view.php");
+if (!file_exists('../config/db_connect.php')) {
+    $_SESSION['error'] = "Lỗi hệ thống: Không tìm thấy file db_connect.php tại C:\xampp\htdocs\datn\config\db_connect.php";
+    header("Location: ../login_view.php");
     exit();
 }
-$conn->set_charset("utf8mb4");
+include '../config/db_connect.php';
+include '../models/UserModel.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
+    $input_username = trim($_POST['username'] ?? '');
+    $input_password = trim($_POST['password'] ?? '');
 
     // Kiểm tra dữ liệu đầu vào
-    if (empty($username)) {
-        error_log("Lỗi đăng nhập: Tên đăng nhập trống.");
+    if (empty($input_username)) {
         $_SESSION['error'] = "Vui lòng nhập tên đăng nhập.";
-        header("Location: ../view/login_view.php");
+        header("Location: ../login_view.php");
         exit();
     }
-    if (empty($password)) {
-        error_log("Lỗi đăng nhập: Mật khẩu trống.");
+    if (empty($input_password)) {
         $_SESSION['error'] = "Vui lòng nhập mật khẩu.";
-        header("Location: ../view/login_view.php");
+        header("Location: ../login_view.php");
         exit();
     }
 
-    // Truy vấn người dùng từ bảng users
-    $sql = "SELECT id, username, password, role, shop_id FROM users WHERE username = ?";
-    $stmt = $conn->prepare($sql);
-    if ($stmt === false) {
-        error_log("Lỗi chuẩn bị truy vấn đăng nhập: " . $conn->error);
-        $_SESSION['error'] = "Lỗi hệ thống: Không thể chuẩn bị truy vấn đăng nhập.";
-        header("Location: ../view/login_view.php");
-        exit();
-    }
-    $stmt->bind_param('s', $username);
-    if (!$stmt->execute()) {
-        error_log("Lỗi thực thi truy vấn đăng nhập: " . $stmt->error);
-        $_SESSION['error'] = "Lỗi hệ thống: Không thể thực thi truy vấn đăng nhập.";
-        $stmt->close();
-        header("Location: ../view/login_view.php");
-        exit();
-    }
-    $result = $stmt->get_result();
-    $user = $result->fetch_assoc();
-    $stmt->close();
+    try {
+        // Kết nối fashion_shopp để lấy danh sách cơ sở dữ liệu
+        $conn_fashion = new mysqli($host, $username, $password, 'fashion_shopp');
+        if ($conn_fashion->connect_error) {
+            throw new Exception("Lỗi kết nối tới fashion_shopp: " . $conn_fashion->connect_error);
+        }
+        $conn_fashion->set_charset("utf8mb4");
 
-    // Ghi log dữ liệu người dùng lấy được
-    error_log("Dữ liệu người dùng từ DB: " . print_r($user, true));
+        // Danh sách cơ sở dữ liệu: fashion_shopp + các shop_* từ fashion_shopp.shop
+        $databases = [['name' => 'fashion_shopp', 'shop_id' => null]];
+        $sql_shops = "SELECT id, db_name FROM shop WHERE db_name != ''";
+        $result_shops = $conn_fashion->query($sql_shops);
+        if ($result_shops === false) {
+            throw new Exception("Lỗi truy vấn danh sách shop: " . $conn_fashion->error);
+        }
+        while ($row = $result_shops->fetch_assoc()) {
+            $databases[] = ['name' => $row['db_name'], 'shop_id' => $row['id']];
+        }
+        $conn_fashion->close();
 
-    // Kiểm tra thông tin đăng nhập
-    if ($user) {
-        // So sánh mật khẩu trực tiếp (thay bằng password_verify nếu mật khẩu được mã hóa)
-        if ($password === $user['password']) {
+        // Tìm username trong các cơ sở dữ liệu
+        $user = null;
+        $selected_db = null;
+        $selected_shop_id = null;
+        foreach ($databases as $db) {
+            $model = new UserModel($host, $username, $password, $db['name']);
+            $user = $model->authenticate($input_username, $input_password);
+            $model->close();
+            if ($user) {
+                $selected_db = $db['name'];
+                $selected_shop_id = $db['shop_id'];
+                break;
+            }
+        }
+
+        if ($user) {
             // Thiết lập session
             $_SESSION['user_id'] = $user['id'];
             $_SESSION['username'] = $user['username'];
             $_SESSION['role'] = $user['role'];
             $_SESSION['loggedin'] = true;
-            $_SESSION['shop_id'] = $user['shop_id'];
+            $_SESSION['shop_id'] = $selected_shop_id ?? 0; // 0 nếu là fashion_shopp
+            $_SESSION['shop_db'] = $selected_db;
 
-            // Đặt shop_db dựa trên shop_id
-            if ($user['shop_id'] !== null) {
-                $sql_shop = "SELECT db_name FROM shop WHERE id = ?";
-                $stmt_shop = $conn->prepare($sql_shop);
-                if ($stmt_shop === false) {
-                    error_log("Lỗi chuẩn bị truy vấn shop: " . $conn->error);
-                    $_SESSION['error'] = "Lỗi hệ thống: Không thể lấy thông tin cơ sở.";
-                    header("Location: ../view/login_view.php");
-                    exit();
-                }
-                $stmt_shop->bind_param('i', $user['shop_id']);
-                $stmt_shop->execute();
-                $shop_result = $stmt_shop->get_result();
-                if ($shop_result->num_rows === 1) {
-                    $shop = $shop_result->fetch_assoc();
-                    $_SESSION['shop_db'] = $shop['db_name'];
-                } else {
-                    error_log("Lỗi: Không tìm thấy cơ sở với shop_id={$user['shop_id']}");
-                    $_SESSION['error'] = "Không tìm thấy cơ sở của nhân viên.";
-                    $stmt_shop->close();
-                    header("Location: ../view/login_view.php");
-                    exit();
-                }
-                $stmt_shop->close();
-            } else {
-                $_SESSION['shop_db'] = 'fashion_shopp'; // Admin mặc định dùng cơ sở chính
-            }
-
-            error_log("Đăng nhập thành công: user_id={$user['id']}, username={$user['username']}, role={$user['role']}, shop_id={$user['shop_id']}, shop_db={$_SESSION['shop_db']}");
-            error_log("Session sau đăng nhập: " . print_r($_SESSION, true));
             header("Location: ../index.php");
             exit();
         } else {
-            error_log("Lỗi đăng nhập: Mật khẩu không đúng cho username=$username. Nhập: $password, DB: {$user['password']}");
-            $_SESSION['error'] = "Mật khẩu không đúng.";
-            header("Location: ../view/login_view.php");
+            $_SESSION['error'] = "Tên đăng nhập hoặc mật khẩu không đúng.";
+            header("Location: ../login_view.php");
             exit();
         }
-    } else {
-        error_log("Lỗi đăng nhập: Không tìm thấy người dùng với username=$username");
-        $_SESSION['error'] = "Tên đăng nhập không tồn tại.";
-        header("Location: ../view/login_view.php");
+    } catch (Exception $e) {
+        // Hiển thị lỗi chi tiết trên giao diện
+        $error_message = "Lỗi hệ thống: " . htmlspecialchars($e->getMessage()) . " (File: " . $e->getFile() . ", Line: " . $e->getLine() . ")";
+        $_SESSION['error'] = $error_message;
+        header("Location: ../login_view.php");
         exit();
     }
+} else {
+    $_SESSION['error'] = "Phương thức không hợp lệ.";
+    header("Location: ../login_view.php");
+    exit();
 }
-
-// Đóng kết nối
-$conn->close();
 ?>

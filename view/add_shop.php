@@ -17,11 +17,13 @@ if ($_SESSION['role'] !== 'admin') {
 include '../config/db_connect.php';
 $conn = new mysqli($host, $username, $password, 'fashion_shopp');
 if ($conn->connect_error) {
-    error_log("Lỗi kết nối tới fashion_shopp: " . $conn->connect_error);
-    $error = "Lỗi kết nối tới cơ sở dữ liệu: " . $conn->connect_error;
-} else {
-    $conn->set_charset("utf8mb4");
+    $error_message = "Lỗi kết nối tới fashion_shopp: " . $conn->connect_error;
+    error_log($error_message);
+    $_SESSION['error'] = $error_message;
+    header("Location: add_shop.php");
+    exit();
 }
+$conn->set_charset("utf8mb4");
 
 // Hàm kiểm tra bảng tồn tại
 function tableExists($conn, $db_name, $table_name) {
@@ -41,380 +43,479 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
     $address = trim($_POST['address'] ?? '');
 
     if (empty($name) || empty($address)) {
-        $error = "Vui lòng nhập đầy đủ tên và địa chỉ cơ sở!";
-    } elseif (isset($conn->connect_error)) {
-        $error = "Không thể thêm cơ sở do lỗi kết nối cơ sở dữ liệu.";
+        $_SESSION['error'] = "Vui lòng nhập đầy đủ tên và địa chỉ cơ sở!";
     } else {
+        // Kiểm tra quyền tạo cơ sở dữ liệu
+        $sql_check_privileges = "SHOW GRANTS FOR CURRENT_USER";
+        $result = $conn->query($sql_check_privileges);
+        $has_create_privilege = false;
+        while ($row = $result->fetch_array()) {
+            if (strpos($row[0], 'CREATE') !== false && (strpos($row[0], 'ALL PRIVILEGES') !== false || strpos($row[0], 'DATABASE') !== false)) {
+                $has_create_privilege = true;
+                break;
+            }
+        }
+        if (!$has_create_privilege) {
+            $error_message = "Tài khoản MySQL không có quyền tạo cơ sở dữ liệu.";
+            error_log($error_message);
+            $_SESSION['error'] = $error_message;
+            header("Location: add_shop.php");
+            exit();
+        }
+
         // Kiểm tra các bảng chung trong fashion_shopp
         $required_tables = ['shop', 'category', 'supplier', 'flash_sale'];
         foreach ($required_tables as $table) {
             if (!tableExists($conn, 'fashion_shopp', $table)) {
-                error_log("Bảng fashion_shopp.$table không tồn tại");
-                $error = "Bảng fashion_shopp.$table không tồn tại. Vui lòng tạo bảng trước.";
-                break;
+                $error_message = "Bảng fashion_shopp.$table không tồn tại. Vui lòng tạo bảng trước.";
+                error_log($error_message);
+                $_SESSION['error'] = $error_message;
+                header("Location: add_shop.php");
+                exit();
             }
         }
 
-        if (!isset($error)) {
-            // Thêm cơ sở vào bảng shop
-            $sql = "INSERT INTO shop (name, address, db_name) VALUES (?, ?, '')";
-            $stmt = $conn->prepare($sql);
-            if ($stmt === false) {
-                error_log("Lỗi chuẩn bị truy vấn thêm shop: " . $conn->error);
-                $error = "Lỗi chuẩn bị truy vấn: " . $conn->error;
-            } else {
-                $stmt->bind_param('ss', $name, $address);
-                if ($stmt->execute()) {
-                    $shop_id = $stmt->insert_id;
-                    $stmt->close();
+        // Thêm cơ sở vào bảng shop
+        $sql = "INSERT INTO shop (name, address, db_name) VALUES (?, ?, '')";
+        $stmt = $conn->prepare($sql);
+        if ($stmt === false) {
+            $error_message = "Lỗi chuẩn bị truy vấn thêm shop: " . $conn->error;
+            error_log($error_message);
+            $_SESSION['error'] = $error_message;
+            header("Location: add_shop.php");
+            exit();
+        }
+        $stmt->bind_param('ss', $name, $address);
+        if ($stmt->execute()) {
+            $shop_id = $stmt->insert_id;
+            $stmt->close();
 
-                    // Tạo tên cơ sở dữ liệu (shop_ + shop_id)
-                    $db_name = "shop_$shop_id";
-                    $sql_update = "UPDATE shop SET db_name = ? WHERE id = ?";
-                    $stmt_update = $conn->prepare($sql_update);
-                    if ($stmt_update === false) {
-                        error_log("Lỗi chuẩn bị truy vấn cập nhật db_name: " . $conn->error);
-                        $error = "Lỗi chuẩn bị truy vấn cập nhật db_name: " . $conn->error;
-                    } else {
-                        $stmt_update->bind_param('si', $db_name, $shop_id);
-                        $stmt_update->execute();
-                        $stmt_update->close();
-
-                        // Tạo cơ sở dữ liệu mới
-                        $sql_create_db = "CREATE DATABASE IF NOT EXISTS `$db_name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
-                        if ($conn->query($sql_create_db) === TRUE) {
-                            error_log("Tạo cơ sở dữ liệu $db_name thành công");
-                            // Kết nối đến cơ sở dữ liệu mới
-                            $conn_new = new mysqli($host, $username, $password, $db_name);
-                            if ($conn_new->connect_error) {
-                                error_log("Lỗi kết nối cơ sở dữ liệu $db_name: " . $conn_new->connect_error);
-                                $error = "Lỗi kết nối cơ sở dữ liệu mới: " . $conn_new->connect_error;
-                            } else {
-                                $conn_new->set_charset("utf8mb4");
-
-                                // Tạo bảng users
-                                $sql_create_users = "
-                                    CREATE TABLE users (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        name VARCHAR(255) NOT NULL,
-                                        phone_number VARCHAR(11) DEFAULT NULL,
-                                        email VARCHAR(100) NOT NULL,
-                                        username VARCHAR(100) NOT NULL,
-                                        password VARCHAR(255) NOT NULL,
-                                        role ENUM('admin','employee') NOT NULL DEFAULT 'employee',
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        UNIQUE KEY username (username),
-                                        UNIQUE KEY email (email)
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_users) !== TRUE) {
-                                    error_log("Lỗi tạo bảng users trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng users: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng employee
-                                $sql_create_employee = "
-                                    CREATE TABLE employee (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        name VARCHAR(255) NOT NULL,
-                                        phone_number VARCHAR(11) DEFAULT NULL,
-                                        email VARCHAR(100) NOT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        UNIQUE KEY email (email)
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_employee) !== TRUE) {
-                                    error_log("Lỗi tạo bảng employee trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng employee: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng employee_salary
-                                $sql_create_employee_salary = "
-                                    CREATE TABLE employee_salary (
-                                        employee_id INT NOT NULL,
-                                        month VARCHAR(7) NOT NULL,
-                                        work_days DECIMAL(4,1) NOT NULL,
-                                        salary_per_day DECIMAL(10,2) NOT NULL,
-                                        total_salary DECIMAL(10,2) NOT NULL,
-                                        status ENUM('paid','unpaid') NOT NULL DEFAULT 'unpaid',
-                                        payment_date DATETIME DEFAULT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        PRIMARY KEY (employee_id, month),
-                                        FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_employee_salary) !== TRUE) {
-                                    error_log("Lỗi tạo bảng employee_salary trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng employee_salary: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng attendance
-                                $sql_create_attendance = "
-                                    CREATE TABLE attendance (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        employee_id INT NOT NULL,
-                                        attendance_date DATETIME NOT NULL,
-                                        FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_attendance) !== TRUE) {
-                                    error_log("Lỗi tạo bảng attendance trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng attendance: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng customer
-                                $sql_create_customer = "
-                                    CREATE TABLE customer (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        name VARCHAR(255) NOT NULL,
-                                        phone_number VARCHAR(11) NOT NULL,
-                                        email VARCHAR(100) DEFAULT NULL,
-                                        address TEXT DEFAULT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        UNIQUE KEY phone_number (phone_number),
-                                        UNIQUE KEY email (email)
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_customer) !== TRUE) {
-                                    error_log("Lỗi tạo bảng customer trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng customer: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng product
-                                $sql_create_product = "
-                                    CREATE TABLE product (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        name VARCHAR(255) NOT NULL,
-                                        description TEXT NOT NULL,
-                                        image VARCHAR(255) DEFAULT NULL,
-                                        category_id INT NOT NULL,
-                                        type VARCHAR(50) NOT NULL DEFAULT 'general',
-                                        unit VARCHAR(50) NOT NULL,
-                                        price DECIMAL(10,2) NOT NULL,
-                                        flash_sale_id INT DEFAULT NULL,
-                                        cost_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        FOREIGN KEY (category_id) REFERENCES fashion_shopp.category(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (flash_sale_id) REFERENCES fashion_shopp.flash_sale(id) ON DELETE SET NULL ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_product) !== TRUE) {
-                                    error_log("Lỗi tạo bảng product trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng product: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng product_flash_sale
-                                $sql_create_product_flash_sale = "
-                                    CREATE TABLE product_flash_sale (
-                                        product_id INT NOT NULL,
-                                        flash_sale_id INT NOT NULL,
-                                        PRIMARY KEY (product_id, flash_sale_id),
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (flash_sale_id) REFERENCES fashion_shopp.flash_sale(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_product_flash_sale) !== TRUE) {
-                                    error_log("Lỗi tạo bảng product_flash_sale trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng product_flash_sale: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng image_product
-                                $sql_create_image_product = "
-                                    CREATE TABLE image_product (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        product_id INT NOT NULL,
-                                        image_url VARCHAR(255) NOT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_image_product) !== TRUE) {
-                                    error_log("Lỗi tạo bảng image_product trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng image_product: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng customer_purchase
-                                $sql_create_customer_purchase = "
-                                    CREATE TABLE customer_purchase (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        customer_id INT NOT NULL,
-                                        product_id INT NOT NULL,
-                                        purchase_date DATETIME NOT NULL,
-                                        quantity INT NOT NULL,
-                                        total_price DECIMAL(10,2) NOT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_customer_purchase) !== TRUE) {
-                                    error_log("Lỗi tạo bảng customer_purchase trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng customer_purchase: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng inventory
-                                $sql_create_inventory = "
-                                    CREATE TABLE inventory (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        product_id INT NOT NULL,
-                                        shop_id INT NOT NULL,
-                                        quantity INT NOT NULL DEFAULT 0,
-                                        unit VARCHAR(50) NOT NULL,
-                                        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_inventory) !== TRUE) {
-                                    error_log("Lỗi tạo bảng inventory trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng inventory: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng order
-                                $sql_create_order = "
-                                    CREATE TABLE `order` (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        customer_id INT DEFAULT NULL,
-                                        employee_id INT DEFAULT NULL,
-                                        order_date DATETIME NOT NULL,
-                                        total_price DECIMAL(10,2) NOT NULL,
-                                        status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_order) !== TRUE) {
-                                    error_log("Lỗi tạo bảng order trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng order: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng order_detail
-                                $sql_create_order_detail = "
-                                    CREATE TABLE order_detail (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        order_id INT NOT NULL,
-                                        product_id INT NOT NULL,
-                                        product_option_id INT DEFAULT NULL,
-                                        quantity INT NOT NULL,
-                                        unit_price DECIMAL(10,2) NOT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        discount DECIMAL(10,2) DEFAULT 0.00,
-                                        FOREIGN KEY (order_id) REFERENCES `order`(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_order_detail) !== TRUE) {
-                                    error_log("Lỗi tạo bảng order_detail trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng order_detail: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng transfer_stock
-                                $sql_create_transfer_stock = "
-                                    CREATE TABLE transfer_stock (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        product_id INT NOT NULL,
-                                        from_shop_id INT NOT NULL,
-                                        to_shop_id INT NOT NULL,
-                                        quantity INT NOT NULL,
-                                        transfer_date DATETIME NOT NULL,
-                                        employee_id INT NOT NULL,
-                                        status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (from_shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (to_shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_transfer_stock) !== TRUE) {
-                                    error_log("Lỗi tạo bảng transfer_stock trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng transfer_stock: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng import_goods
-                                $sql_create_import_goods = "
-                                    CREATE TABLE import_goods (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        product_id INT NOT NULL,
-                                        supplier_id INT NOT NULL,
-                                        quantity INT NOT NULL,
-                                        unit_price DECIMAL(10,2) NOT NULL,
-                                        total_price DECIMAL(10,2) NOT NULL,
-                                        import_date DATETIME NOT NULL,
-                                        employee_id INT NOT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        transfer_id INT DEFAULT NULL,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (supplier_id) REFERENCES fashion_shopp.supplier(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (transfer_id) REFERENCES transfer_stock(id) ON DELETE SET NULL ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_import_goods) !== TRUE) {
-                                    error_log("Lỗi tạo bảng import_goods trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng import_goods: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng export_goods
-                                $sql_create_export_goods = "
-                                    CREATE TABLE export_goods (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        product_id INT NOT NULL,
-                                        quantity INT NOT NULL,
-                                        unit_price DECIMAL(10,2) NOT NULL,
-                                        total_price DECIMAL(10,2) NOT NULL,
-                                        export_date DATETIME NOT NULL,
-                                        employee_id INT NOT NULL,
-                                        reason TEXT DEFAULT NULL,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                        transfer_id INT DEFAULT NULL,
-                                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                                        FOREIGN KEY (transfer_id) REFERENCES transfer_stock(id) ON DELETE SET NULL ON UPDATE CASCADE
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_export_goods) !== TRUE) {
-                                    error_log("Lỗi tạo bảng export_goods trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng export_goods: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng report
-                                $sql_create_report = "
-                                    CREATE TABLE report (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        report_date DATE NOT NULL,
-                                        total_revenue DECIMAL(15,2) NOT NULL DEFAULT 0.00,
-                                        total_orders INT NOT NULL DEFAULT 0,
-                                        total_customers INT NOT NULL DEFAULT 0,
-                                        total_products INT NOT NULL DEFAULT 0,
-                                        total_import INT NOT NULL DEFAULT 0,
-                                        total_export INT NOT NULL DEFAULT 0,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_report) !== TRUE) {
-                                    error_log("Lỗi tạo bảng report trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng report: " . $conn_new->error;
-                                }
-
-                                // Tạo bảng promotion
-                                $sql_create_promotion = "
-                                    CREATE TABLE promotion (
-                                        id INT AUTO_INCREMENT PRIMARY KEY,
-                                        name VARCHAR(100) NOT NULL,
-                                        discount DECIMAL(5,2) NOT NULL,
-                                        start_date DATETIME NOT NULL,
-                                        end_date DATETIME NOT NULL,
-                                        status TINYINT(1) NOT NULL DEFAULT 1,
-                                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
-                                if ($conn_new->query($sql_create_promotion) !== TRUE) {
-                                    error_log("Lỗi tạo bảng promotion trong $db_name: " . $conn_new->error);
-                                    $error = "Lỗi tạo bảng promotion: " . $conn_new->error;
-                                }
-
-                                $conn_new->close();
-                                if (!isset($error)) {
-                                    header("Location: add_shop.php?shop_added=success");
-                                    exit();
-                                }
-                            }
-                        } else {
-                            error_log("Lỗi khi tạo cơ sở dữ liệu $db_name: " . $conn->error);
-                            $error = "Lỗi khi tạo cơ sở dữ liệu mới: " . $conn->error;
-                        }
-                    }
-                } else {
-                    error_log("Lỗi khi thêm shop vào fashion_shopp.shop: " . $stmt->error);
-                    $error = "Lỗi khi thêm cơ sở: " . $stmt->error;
-                    $stmt->close();
-                }
+            // Tạo tên cơ sở dữ liệu (shop_ + shop_id)
+            $db_name = "shop_$shop_id";
+            $sql_update = "UPDATE shop SET db_name = ? WHERE id = ?";
+            $stmt_update = $conn->prepare($sql_update);
+            if ($stmt_update === false) {
+                $error_message = "Lỗi chuẩn bị truy vấn cập nhật db_name: " . $conn->error;
+                error_log($error_message);
+                $_SESSION['error'] = $error_message;
+                header("Location: add_shop.php");
+                exit();
             }
+            $stmt_update->bind_param('si', $db_name, $shop_id);
+            $stmt_update->execute();
+            $stmt_update->close();
+
+            // Tạo cơ sở dữ liệu mới
+            $sql_create_db = "CREATE DATABASE IF NOT EXISTS `$db_name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
+            if ($conn->query($sql_create_db) === TRUE) {
+                // Kết nối đến cơ sở dữ liệu mới
+                $conn_new = new mysqli($host, $username, $password, $db_name);
+                if ($conn_new->connect_error) {
+                    $error_message = "Lỗi kết nối cơ sở dữ liệu $db_name: " . $conn_new->connect_error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+                $conn_new->set_charset("utf8mb4");
+
+                // Tạo bảng users
+                $sql_create_users = "
+                    CREATE TABLE users (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        phone_number VARCHAR(11) DEFAULT NULL,
+                        email VARCHAR(100) NOT NULL,
+                        username VARCHAR(100) NOT NULL,
+                        password VARCHAR(255) NOT NULL,
+                        role ENUM('admin','employee') NOT NULL DEFAULT 'employee',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        shop_id INT DEFAULT $shop_id,
+                        UNIQUE KEY username (username),
+                        UNIQUE KEY email (email)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_users) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng users trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng employee
+                $sql_create_employee = "
+                    CREATE TABLE employee (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        phone_number VARCHAR(11) DEFAULT NULL,
+                        email VARCHAR(100) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY email (email)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_employee) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng employee trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng employee_salary
+                $sql_create_employee_salary = "
+                    CREATE TABLE employee_salary (
+                        employee_id INT NOT NULL,
+                        month VARCHAR(7) NOT NULL,
+                        work_days DECIMAL(4,1) NOT NULL,
+                        salary_per_day DECIMAL(10,2) NOT NULL,
+                        total_salary DECIMAL(10,2) NOT NULL,
+                        status ENUM('paid','unpaid') NOT NULL DEFAULT 'unpaid',
+                        payment_date DATETIME DEFAULT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        PRIMARY KEY (employee_id, month),
+                        FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_employee_salary) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng employee_salary trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng attendance
+                $sql_create_attendance = "
+                    CREATE TABLE attendance (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        employee_id INT NOT NULL,
+                        attendance_date DATETIME NOT NULL,
+                        FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_attendance) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng attendance trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng customer
+                $sql_create_customer = "
+                    CREATE TABLE customer (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        phone_number VARCHAR(11) NOT NULL,
+                        email VARCHAR(100) DEFAULT NULL,
+                        address TEXT DEFAULT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE KEY phone_number (phone_number),
+                        UNIQUE KEY email (email)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_customer) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng customer trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng product
+                $sql_create_product = "
+                    CREATE TABLE product (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        name VARCHAR(255) NOT NULL,
+                        description TEXT NOT NULL,
+                        image VARCHAR(255) DEFAULT NULL,
+                        category_id INT NOT NULL,
+                        type VARCHAR(50) NOT NULL DEFAULT 'general',
+                        unit VARCHAR(50) NOT NULL,
+                        price DECIMAL(10,2) NOT NULL,
+                        flash_sale_id INT DEFAULT NULL,
+                        cost_price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (category_id) REFERENCES fashion_shopp.category(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (flash_sale_id) REFERENCES fashion_shopp.flash_sale(id) ON DELETE SET NULL ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_product) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng product trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng product_flash_sale
+                $sql_create_product_flash_sale = "
+                    CREATE TABLE product_flash_sale (
+                        product_id INT NOT NULL,
+                        flash_sale_id INT NOT NULL,
+                        PRIMARY KEY (product_id, flash_sale_id),
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (flash_sale_id) REFERENCES fashion_shopp.flash_sale(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_product_flash_sale) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng product_flash_sale trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng image_product
+                $sql_create_image_product = "
+                    CREATE TABLE image_product (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        product_id INT NOT NULL,
+                        image_url VARCHAR(255) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_image_product) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng image_product trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng product_option
+                $sql_create_product_option = "
+                    CREATE TABLE product_option (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        product_id INT NOT NULL,
+                        size VARCHAR(10) NOT NULL,
+                        color VARCHAR(50) NOT NULL,
+                        image_url VARCHAR(255) NOT NULL,
+                        stock_quantity INT NOT NULL DEFAULT 0,
+                        price DECIMAL(10,2) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_product_option) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng product_option trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng customer_purchase
+                $sql_create_customer_purchase = "
+                    CREATE TABLE customer_purchase (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        customer_id INT NOT NULL,
+                        product_id INT NOT NULL,
+                        purchase_date DATETIME NOT NULL,
+                        quantity INT NOT NULL,
+                        total_price DECIMAL(10,2) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_customer_purchase) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng customer_purchase trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng inventory
+                $sql_create_inventory = "
+                    CREATE TABLE inventory (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        product_id INT NOT NULL,
+                        shop_id INT NOT NULL,
+                        quantity INT NOT NULL DEFAULT 0,
+                        unit VARCHAR(50) NOT NULL,
+                        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_inventory) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng inventory trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng order
+                $sql_create_order = "
+                    CREATE TABLE `order` (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        customer_id INT DEFAULT NULL,
+                        employee_id INT DEFAULT NULL,
+                        order_date DATETIME NOT NULL,
+                        total_price DECIMAL(10,2) NOT NULL,
+                        status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (employee_id) REFERENCES users(id) ON DELETE SET NULL ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_order) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng order trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng order_detail
+                $sql_create_order_detail = "
+                    CREATE TABLE order_detail (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        order_id INT NOT NULL,
+                        product_id INT NOT NULL,
+                        product_option_id INT DEFAULT NULL,
+                        quantity INT NOT NULL,
+                        unit_price DECIMAL(10,2) NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        discount DECIMAL(10,2) DEFAULT 0.00,
+                        FOREIGN KEY (order_id) REFERENCES `order`(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (product_option_id) REFERENCES product_option(id) ON DELETE SET NULL ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_order_detail) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng order_detail trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng transfer_stock
+                $sql_create_transfer_stock = "
+                    CREATE TABLE transfer_stock (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        product_id INT NOT NULL,
+                        from_shop_id INT NOT NULL,
+                        to_shop_id INT NOT NULL,
+                        quantity INT NOT NULL,
+                        transfer_date DATETIME NOT NULL,
+                        employee_id INT NOT NULL,
+                        status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (from_shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (to_shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_transfer_stock) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng transfer_stock trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng import_goods
+                $sql_create_import_goods = "
+                    CREATE TABLE import_goods (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        product_id INT NOT NULL,
+                        supplier_id INT NOT NULL,
+                        quantity INT NOT NULL,
+                        unit_price DECIMAL(10,2) NOT NULL,
+                        total_price DECIMAL(10,2) NOT NULL,
+                        import_date DATETIME NOT NULL,
+                        employee_id INT NOT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        transfer_id INT DEFAULT NULL,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (supplier_id) REFERENCES fashion_shopp.supplier(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (transfer_id) REFERENCES transfer_stock(id) ON DELETE SET NULL ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_import_goods) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng import_goods trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng export_goods
+                $sql_create_export_goods = "
+                    CREATE TABLE export_goods (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        product_id INT NOT NULL,
+                        quantity INT NOT NULL,
+                        unit_price DECIMAL(10,2) NOT NULL,
+                        total_price DECIMAL(10,2) NOT NULL,
+                        export_date DATETIME NOT NULL,
+                        employee_id INT NOT NULL,
+                        reason TEXT DEFAULT NULL,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        transfer_id INT DEFAULT NULL,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (transfer_id) REFERENCES transfer_stock(id) ON DELETE SET NULL ON UPDATE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_export_goods) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng export_goods trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng report
+                $sql_create_report = "
+                    CREATE TABLE report (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        report_date DATE NOT NULL,
+                        total_revenue DECIMAL(15,2) NOT NULL DEFAULT 0.00,
+                        total_orders INT NOT NULL DEFAULT 0,
+                        total_customers INT NOT NULL DEFAULT 0,
+                        total_products INT NOT NULL DEFAULT 0,
+                        total_import INT NOT NULL DEFAULT 0,
+                        total_export INT NOT NULL DEFAULT 0,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_report) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng report trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                // Tạo bảng promotion
+                $sql_create_promotion = "
+                    CREATE TABLE promotion (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        name VARCHAR(100) NOT NULL,
+                        discount DECIMAL(5,2) NOT NULL,
+                        start_date DATETIME NOT NULL,
+                        end_date DATETIME NOT NULL,
+                        status TINYINT(1) NOT NULL DEFAULT 1,
+                        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_promotion) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng promotion trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                $conn_new->close();
+                header("Location: add_shop.php?shop_added=success");
+                exit();
+            } else {
+                $error_message = "Lỗi khi tạo cơ sở dữ liệu $db_name: " . $conn->error;
+                error_log($error_message);
+                $_SESSION['error'] = $error_message;
+                header("Location: add_shop.php");
+                exit();
+            }
+        } else {
+            $error_message = "Lỗi khi thêm shop vào fashion_shopp.shop: " . $stmt->error;
+            error_log($error_message);
+            $_SESSION['error'] = $error_message;
+            $stmt->close();
+            header("Location: add_shop.php");
+            exit();
         }
     }
 }
@@ -501,9 +602,10 @@ if (isset($conn) && $conn instanceof mysqli) {
         </header>
 
         <!-- Thông báo -->
-        <?php if (isset($error)): ?>
+        <?php if (isset($_SESSION['error'])): ?>
             <div class="alert alert-danger" role="alert">
-                <?php echo htmlspecialchars($error); ?>
+                <?php echo htmlspecialchars($_SESSION['error']); ?>
+                <?php unset($_SESSION['error']); ?>
             </div>
         <?php elseif (isset($_GET['shop_added']) && $_GET['shop_added'] == 'success'): ?>
             <div class="alert alert-success" role="alert">
