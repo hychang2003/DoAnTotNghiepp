@@ -14,7 +14,7 @@ if (!isset($session_username)) {
     <title>Tạo đơn nhập hàng - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
 </head>
 <body>
 <div id="main">
@@ -172,11 +172,11 @@ if (!isset($session_username)) {
                                 <h2>Nhân viên phụ trách</h2>
                             </div>
                             <div class="card-body">
-                                <select class="form-select" name="employee_id" required>
+                                <select class="form-select" name="user_id" required>
                                     <option value="">-- Chọn nhân viên --</option>
-                                    <?php foreach ($employees as $employee): ?>
-                                        <option value="<?php echo $employee['id']; ?>">
-                                            <?php echo htmlspecialchars($employee['name']); ?>
+                                    <?php foreach ($users as $user): ?>
+                                        <option value="<?php echo $user['id']; ?>">
+                                            <?php echo htmlspecialchars($user['name']); ?>
                                         </option>
                                     <?php endforeach; ?>
                                 </select>
@@ -230,9 +230,11 @@ if (!isset($session_username)) {
 
         rows.forEach(row => {
             const checkbox = row.querySelector(".product-checkbox");
-            if (checkbox.checked) {
-                const quantity = parseInt(row.querySelector(".product-quantity").value) || 0;
-                const unitPrice = parseFloat(row.querySelector(".product-unit-price").value) || 0;
+            if (checkbox && checkbox.checked) {
+                const quantityInput = row.querySelector(".product-quantity");
+                const unitPriceInput = row.querySelector(".product-unit-price");
+                const quantity = parseInt(quantityInput.value) || 0;
+                const unitPrice = parseFloat(unitPriceInput.dataset.price) || 0;
                 const subtotal = quantity * unitPrice;
                 totalPrice += subtotal;
                 row.querySelector(".subtotal").textContent = formatNumber(subtotal);
@@ -245,7 +247,7 @@ if (!isset($session_username)) {
         document.getElementById("final-price").textContent = formatNumber(totalPrice);
     }
 
-    // Hàm định dạng ngày giờ cho input datetime-local (không bao gồm giây)
+    // Hàm định dạng ngày giờ
     function formatDateTime(date) {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -262,7 +264,7 @@ if (!isset($session_username)) {
         importDateInput.value = formatDateTime(now);
     });
 
-    // Hàm debounce để giảm số lần gọi hàm tìm kiếm
+    // Hàm debounce
     function debounce(func, wait) {
         let timeout;
         return function executedFunction(...args) {
@@ -301,9 +303,9 @@ if (!isset($session_username)) {
 
         // Gửi yêu cầu AJAX để lấy danh sách sản phẩm
         $.ajax({
-            url: "fetch_products.php",
+            url: "../controllers/ImportGoodsController.php",
             method: "POST",
-            data: { db_name: dbName },
+            data: { fetch_products: true, db_name: dbName },
             dataType: "json",
             success: function(response) {
                 const tbody = document.getElementById("product-table-body");
@@ -321,7 +323,7 @@ if (!isset($session_username)) {
                             <td>${product.name}</td>
                             <td>${product.quantity || 0}</td>
                             <td><input type="number" name="quantities[]" min="0" value="0" class="form-control product-quantity"></td>
-                            <td><input type="number" name="unit_prices[]" min="0" value="${product.price}" class="form-control product-unit-price"></td>
+                            <td><input type="number" name="unit_prices[]" min="0" value="${product.price}" class="form-control product-unit-price" data-price="${product.price}"></td>
                             <td class="subtotal">0</td>
                         `;
                         fragment.appendChild(row);
@@ -348,9 +350,19 @@ if (!isset($session_username)) {
         });
     });
 
-    // Gắn sự kiện cho các input ban đầu (nếu có)
+    // Gắn sự kiện cho các input ban đầu
     document.querySelectorAll(".product-checkbox, .product-quantity, .product-unit-price").forEach(element => {
         element.addEventListener("change", calculateTotalPrice);
+    });
+
+    // Chọn nhiều sản phẩm
+    document.getElementById("select-multiple").addEventListener("click", function() {
+        const checkboxes = document.querySelectorAll(".product-checkbox");
+        const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+        checkboxes.forEach(cb => {
+            cb.checked = !allChecked;
+        });
+        calculateTotalPrice();
     });
 </script>
 </body>

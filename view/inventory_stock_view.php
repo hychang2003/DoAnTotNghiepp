@@ -1,18 +1,23 @@
 <?php
 session_start();
 
+// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../login_view.php");
     exit();
 }
 
+// Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
+// Thiết lập múi giờ cho PHP
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
+// Bao gồm file kết nối cơ sở dữ liệu
 include '../config/db_connect.php';
 
+// Hàm lấy kết nối đến cơ sở dữ liệu
 function getConnection($host, $username, $password, $dbname) {
     $conn = new mysqli($host, $username, $password, $dbname);
     if ($conn->connect_error) {
@@ -22,8 +27,10 @@ function getConnection($host, $username, $password, $dbname) {
     return $conn;
 }
 
-$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+// Lấy cơ sở hiện tại từ session
+$shop_db = $_SESSION['shop_db'] ?? 'shop_11';
 
+// Lấy tên cơ sở và ID từ bảng shop
 $conn_main = getConnection($host, $username, $password, 'fashion_shopp');
 $sql_shop = "SELECT id, name FROM shop WHERE db_name = ?";
 $stmt_shop = $conn_main->prepare($sql_shop);
@@ -35,30 +42,60 @@ $stmt_shop->execute();
 $result_shop = $stmt_shop->get_result();
 $shop_row = $result_shop->fetch_assoc();
 $shop_name = $shop_row['name'] ?? $shop_db;
-$shop_id = $shop_row['id'] ?? 1;
-if (!$shop_row) {
-    error_log("Không tìm thấy shop cho db_name = '$shop_db' trong bảng shop.");
-}
+$current_shop_id = $shop_row['id'] ?? 0;
 $stmt_shop->close();
 
+// Kết nối đến cơ sở dữ liệu của shop
 $conn = getConnection($host, $username, $password, $shop_db);
 
-$sql_inventory = "SELECT p.id, p.name AS product_name, p.price, p.image, COALESCE(i.quantity, 0) AS stock_quantity, c.name AS category_name
+// Xử lý phân trang
+$limit = 10;
+$page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+$offset = ($page - 1) * $limit;
+
+// Xử lý tìm kiếm và lọc
+$search = isset($_GET['search']) ? $_GET['search'] : '';
+$search_condition = '';
+if (!empty($search)) {
+    $search = $conn->real_escape_string($search);
+    $search_condition = "AND (p.name LIKE '%$search%' OR c.name LIKE '%$search%')";
+}
+
+// Đếm tổng số bản ghi tồn kho
+$sql_count = "SELECT COUNT(DISTINCT p.id) as total
+              FROM `$shop_db`.product p
+              LEFT JOIN `fashion_shopp`.category c ON p.category_id = c.id
+              LEFT JOIN `$shop_db`.inventory i ON p.id = i.product_id
+              WHERE i.shop_id = ? $search_condition";
+$stmt_count = $conn->prepare($sql_count);
+if ($stmt_count === false) {
+    error_log("Lỗi chuẩn bị truy vấn count inventory: " . $conn->error);
+    die("Lỗi chuẩn bị truy vấn count: " . $conn->error);
+}
+$stmt_count->bind_param('i', $current_shop_id);
+$stmt_count->execute();
+$result_count = $stmt_count->get_result();
+$total_records = $result_count->fetch_assoc()['total'];
+$total_pages = ceil($total_records / $limit);
+$stmt_count->close();
+
+// Lấy danh sách tồn kho
+$sql_inventory = "SELECT p.id, p.name, p.image, p.price, c.name AS category_name, SUM(i.quantity) AS total_quantity, i.unit
                   FROM `$shop_db`.product p
-                  LEFT JOIN fashion_shopp.category c ON p.category_id = c.id
-                  LEFT JOIN `$shop_db`.inventory i ON p.id = i.product_id AND i.shop_id = ?";
+                  LEFT JOIN `fashion_shopp`.category c ON p.category_id = c.id
+                  LEFT JOIN `$shop_db`.inventory i ON p.id = i.product_id
+                  WHERE i.shop_id = ? $search_condition
+                  GROUP BY p.id, p.name, p.image, p.price, c.name, i.unit
+                  ORDER BY p.id ASC
+                  LIMIT ? OFFSET ?";
 $stmt_inventory = $conn->prepare($sql_inventory);
 if ($stmt_inventory === false) {
-    die("Lỗi chuẩn bị truy vấn tồn kho: " . $conn->error);
+    error_log("Lỗi chuẩn bị truy vấn inventory: " . $conn->error);
+    die("Lỗi chuẩn bị truy vấn inventory: " . $conn->error);
 }
-$stmt_inventory->bind_param('i', $shop_id);
+$stmt_inventory->bind_param('iii', $current_shop_id, $limit, $offset);
 $stmt_inventory->execute();
 $result_inventory = $stmt_inventory->get_result();
-
-$tab = isset($_GET['tab']) ? $_GET['tab'] : 'all';
-
-$image_base_url = "/assets/images/";
-$image_default_url = "/datn/assets/images/default.jpg";
 ?>
 
 <!DOCTYPE html>
@@ -69,18 +106,11 @@ $image_default_url = "/datn/assets/images/default.jpg";
     <title>Quản lý tồn kho - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-    <style>
-        .product-image {
-            width: 50px;
-            height: 50px;
-            object-fit: cover;
-            border-radius: 5px;
-        }
-    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
 </head>
 <body>
 <div id="main">
+    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
@@ -117,6 +147,7 @@ $image_default_url = "/datn/assets/images/default.jpg";
         </ul>
     </div>
 
+    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
@@ -136,171 +167,81 @@ $image_default_url = "/datn/assets/images/default.jpg";
         </div>
     </div>
 
+    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Quản lý tồn kho - Cơ sở: <?php echo htmlspecialchars($shop_name); ?> (DB: <?php echo htmlspecialchars($shop_db); ?>)</h1>
-            <div class="actions">
-            </div>
+            <h1>Quản lý tồn kho - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
 
-        <div class="tabs">
-            <a href="?tab=all" class="tab <?php echo $tab === 'all' ? 'active' : ''; ?>" data-tab="all">Tất cả</a>
-            <a href="?tab=in-stock" class="tab <?php echo $tab === 'in-stock' ? 'active' : ''; ?>" data-tab="in-stock">Còn hàng</a>
-            <a href="?tab=out-of-stock" class="tab <?php echo $tab === 'out-of-stock' ? 'active' : ''; ?>" data-tab="out-of-stock">Hết hàng</a>
-        </div>
+        <!-- Filters -->
+        <section class="filters">
+            <div class="search-filter">
+                <form method="GET" action="">
+                    <input type="text" name="search" placeholder="Tìm kiếm theo mã, tên sản phẩm hoặc danh mục" value="<?php echo htmlspecialchars($search); ?>">
+                    <button type="submit" class="btn btn-filter">Tìm kiếm</button>
+                </form>
+            </div>
+        </section>
 
-        <div class="tab-content">
-            <div id="all" class="tab-pane <?php echo $tab === 'all' ? 'active' : ''; ?>">
-                <table class="table table-hover">
-                    <thead>
-                    <tr>
-                        <th>Ảnh sản phẩm</th>
-                        <th>Mã sản phẩm</th>
-                        <th>Tên sản phẩm</th>
-                        <th>Danh mục</th>
-                        <th>Giá bán</th>
-                        <th>Tồn kho</th>
-                        <th>Trạng thái</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <?php while ($row = $result_inventory->fetch_assoc()):
-                        $stock_quantity = $row['stock_quantity'];
-                        $image_value = $row['image'];
-                        if (!empty($image_value)) {
-                            $image_url = '/datn/' . $image_value;
-                        } else {
-                            $image_url = $image_default_url;
-                        }
-                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', $image_url);
-                        ?>
+        <!-- Inventory Table -->
+        <section class="inventory-table">
+            <table class="table table-bordered">
+                <thead>
+                <tr>
+                    <th>Ảnh sản phẩm</th>
+                    <th>Mã sản phẩm</th>
+                    <th>Tên sản phẩm</th>
+                    <th>Danh mục</th>
+                    <th>Giá bán</th>
+                    <th>Tồn kho</th>
+                    <th>Trạng thái</th>
+                </tr>
+                </thead>
+                <tbody>
+                <?php if ($result_inventory->num_rows > 0): ?>
+                    <?php while ($row = $result_inventory->fetch_assoc()): ?>
                         <tr>
                             <td>
-                                <?php if (file_exists($image_file_path)): ?>
-                                    <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
+                                <?php if ($row['image']): ?>
+                                    <img src="../<?php echo htmlspecialchars($row['image']); ?>" alt="Product Image" style="width: 50px; height: 50px; object-fit: cover;">
                                 <?php else: ?>
-                                    <span class="text-danger">Ảnh không tồn tại</span>
-                                    <?php error_log("Ảnh không tồn tại: $image_url (Đường dẫn: $image_file_path)"); ?>
+                                    N/A
                                 <?php endif; ?>
                             </td>
-                            <td>SP<?php echo str_pad($row['id'], 3, '0', STR_PAD_LEFT); ?></td>
-                            <td><?php echo htmlspecialchars($row['product_name']); ?></td>
-                            <td><?php echo htmlspecialchars($row['category_name'] ?: 'Chưa có danh mục'); ?></td>
-                            <td><?php echo number_format($row['price'], 0, ',', '.') . '₫'; ?></td>
-                            <td><?php echo $stock_quantity; ?></td>
-                            <td>
-                                <span class="badge <?php echo $stock_quantity > 0 ? 'bg-success' : 'bg-danger'; ?>">
-                                    <?php echo $stock_quantity > 0 ? 'Còn hàng' : 'Hết hàng'; ?>
-                                </span>
-                            </td>
+                            <td><?php echo 'SP' . sprintf('%03d', $row['id']); ?></td>
+                            <td><?php echo htmlspecialchars($row['name']); ?></td>
+                            <td><?php echo htmlspecialchars($row['category_name'] ?? 'N/A'); ?></td>
+                            <td><?php echo number_format($row['price'], 0, ',', '.'); ?>₫</td>
+                            <td><?php echo $row['total_quantity'] ?? 0; ?></td>
+                            <td><?php echo ($row['total_quantity'] > 0) ? 'Còn hàng' : 'Hết hàng'; ?></td>
                         </tr>
                     <?php endwhile; ?>
-                    </tbody>
-                </table>
-            </div>
-
-            <div id="in-stock" class="tab-pane <?php echo $tab === 'in-stock' ? 'active' : ''; ?>">
-                <table class="table table-hover">
-                    <thead>
+                <?php else: ?>
                     <tr>
-                        <th>Ảnh sản phẩm</th>
-                        <th>Mã sản phẩm</th>
-                        <th>Tên sản phẩm</th>
-                        <th>Danh mục</th>
-                        <th>Giá bán</th>
-                        <th>Tồn kho</th>
-                        <th>Trạng thái</th>
+                        <td colspan="7" class="text-center">Không có sản phẩm nào trong kho.</td>
                     </tr>
-                    </thead>
-                    <tbody>
-                    <?php
-                    $result_inventory->data_seek(0);
-                    while ($row = $result_inventory->fetch_assoc()):
-                        $stock_quantity = $row['stock_quantity'];
-                        if ($stock_quantity <= 0) continue;
-                        $image_value = $row['image'];
-                        if (!empty($image_value)) {
-                            $image_url = '/datn/' . $image_value;
-                        } else {
-                            $image_url = $image_default_url;
-                        }
-                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', $image_url);
-                        ?>
-                        <tr>
-                            <td>
-                                <?php if (file_exists($image_file_path)): ?>
-                                    <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
-                                <?php else: ?>
-                                    <span class="text-danger">Ảnh không tồn tại</span>
-                                    <?php error_log("Ảnh không tồn tại: $image_url (Đường dẫn: $image_file_path)"); ?>
-                                <?php endif; ?>
-                            </td>
-                            <td>SP<?php echo str_pad($row['id'], 3, '0', STR_PAD_LEFT); ?></td>
-                            <td><?php echo htmlspecialchars($row['product_name']); ?></td>
-                            <td><?php echo htmlspecialchars($row['category_name'] ?: 'Chưa có danh mục'); ?></td>
-                            <td><?php echo number_format($row['price'], 0, ',', '.') . '₫'; ?></td>
-                            <td><?php echo $stock_quantity; ?></td>
-                            <td><span class="badge bg-success">Còn hàng</span></td>
-                        </tr>
-                    <?php endwhile; ?>
-                    </tbody>
-                </table>
-            </div>
+                <?php endif; ?>
+                </tbody>
+            </table>
+        </section>
 
-            <div id="out-of-stock" class="tab-pane <?php echo $tab === 'out-of-stock' ? 'active' : ''; ?>">
-                <table class="table table-hover">
-                    <thead>
-                    <tr>
-                        <th>Ảnh sản phẩm</th>
-                        <th>Mã sản phẩm</th>
-                        <th>Tên sản phẩm</th>
-                        <th>Danh mục</th>
-                        <th>Giá bán</th>
-                        <th>Tồn kho</th>
-                        <th>Trạng thái</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <?php
-                    $result_inventory->data_seek(0);
-                    while ($row = $result_inventory->fetch_assoc()):
-                        $stock_quantity = $row['stock_quantity'];
-                        if ($stock_quantity > 0) continue;
-                        $image_value = $row['image'];
-                        if (!empty($image_value)) {
-                            $image_url = '/datn/' . $image_value;
-                        } else {
-                            $image_url = $image_default_url;
-                        }
-                        $image_file_path = $_SERVER['DOCUMENT_ROOT'] . '/datn' . str_replace('/datn', '', $image_url);
-                        ?>
-                        <tr>
-                            <td>
-                                <?php if (file_exists($image_file_path)): ?>
-                                    <img src="<?php echo htmlspecialchars($image_url); ?>" alt="<?php echo htmlspecialchars($row['product_name']); ?>" class="product-image">
-                                <?php else: ?>
-                                    <span class="text-danger">Ảnh không tồn tại</span>
-                                    <?php error_log("Ảnh không tồn tại: $image_url (Đường dẫn: $image_file_path)"); ?>
-                                <?php endif; ?>
-                            </td>
-                            <td>SP<?php echo str_pad($row['id'], 3, '0', STR_PAD_LEFT); ?></td>
-                            <td><?php echo htmlspecialchars($row['product_name']); ?></td>
-                            <td><?php echo htmlspecialchars($row['category_name'] ?: 'Chưa có danh mục'); ?></td>
-                            <td><?php echo number_format($row['price'], 0, ',', '.') . '₫'; ?></td>
-                            <td><?php echo $stock_quantity; ?></td>
-                            <td><span class="badge bg-danger">Hết hàng</span></td>
-                        </tr>
-                    <?php endwhile; ?>
-                    </tbody>
-                </table>
+        <!-- Pagination -->
+        <footer class="pagination">
+            <span>Từ <?php echo $offset + 1; ?> đến <?php echo min($offset + $limit, $total_records); ?> trên tổng <?php echo $total_records; ?></span>
+            <div class="pagination-controls">
+                <a href="?page=<?php echo max(1, $page - 1); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-sm btn-outline-secondary <?php echo $page <= 1 ? 'disabled' : ''; ?>">◄</a>
+                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                    <a href="?page=<?php echo $i; ?>&search=<?php echo urlencode($search); ?>" class="btn btn-sm btn-outline-secondary <?php echo $i === $page ? 'active' : ''; ?>"><?php echo $i; ?></a>
+                <?php endfor; ?>
+                <a href="?page=<?php echo min($total_pages, $page + 1); ?>&search=<?php echo urlencode($search); ?>" class="btn btn-sm btn-outline-secondary <?php echo $page >= $total_pages ? 'disabled' : ''; ?>">►</a>
             </div>
-        </div>
+        </footer>
     </div>
 </div>
 
 <?php
+// Đóng kết nối
 $result_inventory->free();
-$stmt_inventory->close();
 $conn->close();
 $conn_main->close();
 ?>

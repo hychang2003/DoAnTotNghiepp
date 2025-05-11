@@ -29,6 +29,8 @@ function getConnection($host, $username, $password, $dbname) {
 
 // Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+error_log("Shop DB: " . $shop_db);
+error_log("Session data: " . print_r($_SESSION, true));
 
 // Kết nối đến cơ sở dữ liệu chính
 $conn_main = getConnection($host, $username, $password, 'fashion_shopp');
@@ -50,15 +52,22 @@ $stmt_shop->close();
 $conn = getConnection($host, $username, $password, $shop_db);
 
 // Lấy danh sách hóa đơn nhập
-$sql_imports = "SELECT ig.id, ig.import_date, ig.total_price, e.name AS employee_name, COUNT(ig.product_id) AS product_count
+$sql_imports = "SELECT ig.id, ig.import_date, ig.total_price, u.name AS user_name, COUNT(ig.product_id) AS product_count
                 FROM `$shop_db`.import_goods ig
-                JOIN `$shop_db`.employee e ON ig.employee_id = e.id
-                GROUP BY ig.id, ig.import_date, ig.total_price, e.name
+                JOIN `$shop_db`.users u ON ig.user_id = u.id
+                GROUP BY ig.id, ig.import_date, ig.total_price, u.name
                 ORDER BY ig.created_at DESC";
 $result_imports = $conn->query($sql_imports);
 if ($result_imports === false) {
-    die("Lỗi truy vấn hóa đơn nhập: " . $conn->error);
+    error_log("Lỗi truy vấn hóa đơn nhập: " . $conn->error);
+    $error = "Lỗi truy vấn hóa đơn nhập: " . $conn->error;
+} else {
+    $imports = [];
+    while ($row = $result_imports->fetch_assoc()) {
+        $imports[] = $row;
+    }
 }
+
 ?>
 
 <!DOCTYPE html>
@@ -98,12 +107,12 @@ if ($result_imports === false) {
                 </ul>
             </li>
             <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
@@ -120,7 +129,7 @@ if ($result_imports === false) {
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
-                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username']); ?></span>
+                    <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Khách'); ?></span>
                 </button>
                 <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
@@ -135,9 +144,17 @@ if ($result_imports === false) {
         <header class="header">
             <h1>Danh sách hóa đơn nhập - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
             <div class="actions">
+                <?php error_log("Liên kết Thêm đơn nhập hàng: add_import_goods_view.php"); ?>
                 <a href="add_import_goods_view.php" class="btn btn-primary"><i class="fa fa-plus me-1"></i> Thêm đơn nhập hàng</a>
             </div>
         </header>
+
+        <!-- Thông báo lỗi -->
+        <?php if (isset($error)): ?>
+            <div class="alert alert-danger" role="alert">
+                <?php echo htmlspecialchars($error); ?>
+            </div>
+        <?php endif; ?>
 
         <!-- Thông báo thành công -->
         <?php if (isset($_GET['import_added']) && $_GET['import_added'] === 'success'): ?>
@@ -165,19 +182,19 @@ if ($result_imports === false) {
                         </tr>
                         </thead>
                         <tbody>
-                        <?php if ($result_imports->num_rows > 0): ?>
-                            <?php while ($row = $result_imports->fetch_assoc()): ?>
+                        <?php if (!empty($imports)): ?>
+                            <?php foreach ($imports as $row): ?>
                                 <tr>
                                     <td><?php echo htmlspecialchars($row['id']); ?></td>
                                     <td><?php echo htmlspecialchars($row['import_date']); ?></td>
                                     <td><?php echo number_format($row['total_price'], 0, ',', '.') . '₫'; ?></td>
-                                    <td><?php echo htmlspecialchars($row['employee_name']); ?></td>
+                                    <td><?php echo htmlspecialchars($row['user_name']); ?></td>
                                     <td><?php echo htmlspecialchars($row['product_count']); ?></td>
                                     <td>
                                         <a href="view_import_details.php?id=<?php echo $row['id']; ?>" class="btn btn-info btn-sm"><i class="fa fa-eye"></i> Xem chi tiết</a>
                                     </td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
                                 <td colspan="6" class="text-center">Không có hóa đơn nhập nào.</td>
@@ -193,12 +210,19 @@ if ($result_imports === false) {
 
 <?php
 // Đóng kết nối
-$result_imports->free();
+if ($result_imports) {
+    $result_imports->free();
+}
 $conn->close();
 $conn_main->close();
 ?>
 
-<script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Log khi nhấn nút Thêm đơn nhập hàng
+    document.querySelector('a[href="add_import_goods_view.php"]').addEventListener('click', (e) => {
+        console.log('Nhấn Thêm đơn nhập hàng');
+    });
+</script>
 </body>
 </html>

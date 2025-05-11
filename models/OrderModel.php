@@ -181,7 +181,7 @@ class OrderModel {
                 throw new Exception("Lỗi chuẩn bị truy vấn chi tiết đơn hàng: " . $this->conn->error);
             }
 
-            $sql_update_inventory = "UPDATE inventory SET quantity = quantity - ?, last_updated = NOW() WHERE product_id = ? AND shop_id = 11";
+            $sql_update_inventory = "UPDATE inventory SET quantity = quantity - ? WHERE product_id = ? AND shop_id = 11";
             $stmt_update_inventory = $this->conn->prepare($sql_update_inventory);
             if ($stmt_update_inventory === false) {
                 $debug_messages[] = "Lỗi chuẩn bị truy vấn cập nhật tồn kho: " . $this->conn->error;

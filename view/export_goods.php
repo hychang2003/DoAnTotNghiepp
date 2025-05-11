@@ -30,28 +30,26 @@ function getConnection($host, $username, $password, $dbname) {
 // Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
-// Lấy tên cơ sở từ bảng shop
+// Lấy tên cơ sở và ID từ bảng shop
 $conn_main = getConnection($host, $username, $password, 'fashion_shopp');
-$sql_shop_name = "SELECT name FROM shop WHERE db_name = ?";
-$stmt_shop_name = $conn_main->prepare($sql_shop_name);
-if ($stmt_shop_name === false) {
-    die("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
+$sql_shop = "SELECT id, name FROM shop WHERE db_name = ?";
+$stmt_shop = $conn_main->prepare($sql_shop);
+if ($stmt_shop === false) {
+    die("Lỗi chuẩn bị truy vấn shop: " . $conn_main->error);
 }
-$stmt_shop_name->bind_param('s', $shop_db);
-$stmt_shop_name->execute();
-$result_shop_name = $stmt_shop_name->get_result();
-$shop_row = $result_shop_name->fetch_assoc();
+$stmt_shop->bind_param('s', $shop_db);
+$stmt_shop->execute();
+$result_shop = $stmt_shop->get_result();
+$shop_row = $result_shop->fetch_assoc();
 $shop_name = $shop_row['name'] ?? $shop_db;
-if (!$shop_row) {
-    error_log("Không tìm thấy name cho db_name = '$shop_db' trong bảng shop.");
-}
-$stmt_shop_name->close();
+$current_shop_id = $shop_row['id'] ?? 0;
+$stmt_shop->close();
 
 // Kết nối đến cơ sở dữ liệu của shop
 $conn = getConnection($host, $username, $password, $shop_db);
 
 // Xử lý phân trang
-$limit = 10; // Số bản ghi trên mỗi trang
+$limit = 10;
 $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
 $offset = ($page - 1) * $limit;
 
@@ -60,37 +58,46 @@ $search = isset($_GET['search']) ? $_GET['search'] : '';
 $search_condition = '';
 if (!empty($search)) {
     $search = $conn->real_escape_string($search);
-    $search_condition = "WHERE (eg.id LIKE '%$search%' OR e.name LIKE '%$search%' OR p.name LIKE '%$search%' OR to_shop.name LIKE '%$search%')";
+    $search_condition = "AND (ts.id LIKE '%$search%' OR u.name LIKE '%$search%' OR p.name LIKE '%$search%' OR to_shop.name LIKE '%$search%')";
 }
 
-// Đếm tổng số bản ghi
+// Đếm tổng số đơn nhập hàng chờ duyệt
 $sql_count = "SELECT COUNT(*) as total 
-              FROM `$shop_db`.export_goods eg
-              LEFT JOIN `$shop_db`.employee e ON eg.employee_id = e.id
-              LEFT JOIN `$shop_db`.product p ON eg.product_id = p.id
-              LEFT JOIN `$shop_db`.transfer_stock ts ON eg.transfer_id = ts.id
-              LEFT JOIN `fashion_shop`.shop to_shop ON ts.to_shop_id = to_shop.id
-              $search_condition";
-$result_count = $conn->query($sql_count);
+              FROM `$shop_db`.transfer_stock ts
+              LEFT JOIN `$shop_db`.users u ON ts.user_id = u.id
+              LEFT JOIN `$shop_db`.product p ON ts.product_id = p.id
+              LEFT JOIN `fashion_shopp`.shop to_shop ON ts.to_shop_id = to_shop.id
+              WHERE ts.from_shop_id = ? AND ts.status = 'pending' $search_condition";
+$stmt_count = $conn->prepare($sql_count);
+if ($stmt_count === false) {
+    error_log("Lỗi chuẩn bị truy vấn count transfer_stock: " . $conn->error);
+    die("Lỗi chuẩn bị truy vấn count: " . $conn->error);
+}
+$stmt_count->bind_param('i', $current_shop_id);
+$stmt_count->execute();
+$result_count = $stmt_count->get_result();
 $total_records = $result_count->fetch_assoc()['total'];
 $total_pages = ceil($total_records / $limit);
+$stmt_count->close();
 
-// Lấy danh sách đơn xuất hàng
-$sql_exports = "SELECT eg.id, eg.export_date, eg.total_price, eg.quantity, eg.employee_id, eg.product_id, 
-                       e.name AS employee_name, p.name AS product_name,
-                       ts.to_shop_id, to_shop.name AS to_shop_name
-                FROM `$shop_db`.export_goods eg
-                LEFT JOIN `$shop_db`.employee e ON eg.employee_id = e.id
-                LEFT JOIN `$shop_db`.product p ON eg.product_id = p.id
-                LEFT JOIN `$shop_db`.transfer_stock ts ON eg.transfer_id = ts.id
-                LEFT JOIN `fashion_shop`.shop to_shop ON ts.to_shop_id = to_shop.id
-                $search_condition
-                ORDER BY eg.created_at DESC
-                LIMIT $limit OFFSET $offset";
-$result_exports = $conn->query($sql_exports);
-if ($result_exports === false) {
-    die("Lỗi truy vấn đơn xuất hàng: " . $conn->error);
+// Lấy danh sách đơn nhập hàng chờ duyệt
+$sql_transfers = "SELECT ts.id, ts.transfer_date, ts.quantity, ts.product_id, ts.user_id, ts.to_shop_id, ts.note,
+                         u.name AS user_name, p.name AS product_name, to_shop.name AS to_shop_name
+                  FROM `$shop_db`.transfer_stock ts
+                  LEFT JOIN `$shop_db`.users u ON ts.user_id = u.id
+                  LEFT JOIN `$shop_db`.product p ON ts.product_id = p.id
+                  LEFT JOIN `fashion_shopp`.shop to_shop ON ts.to_shop_id = to_shop.id
+                  WHERE ts.from_shop_id = ? AND ts.status = 'pending' $search_condition
+                  ORDER BY ts.created_at DESC
+                  LIMIT ? OFFSET ?";
+$stmt_transfers = $conn->prepare($sql_transfers);
+if ($stmt_transfers === false) {
+    error_log("Lỗi chuẩn bị truy vấn transfers: " . $conn->error);
+    die("Lỗi chuẩn bị truy vấn transfers: " . $conn->error);
 }
+$stmt_transfers->bind_param('iii', $current_shop_id, $limit, $offset);
+$stmt_transfers->execute();
+$result_transfers = $stmt_transfers->get_result();
 ?>
 
 <!DOCTYPE html>
@@ -101,7 +108,7 @@ if ($result_exports === false) {
     <title>Quản lý xuất hàng - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
 </head>
 <body>
 <div id="main">
@@ -165,55 +172,81 @@ if ($result_exports === false) {
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh sách đơn xuất hàng - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
-            <div class="actions">
-                <a href="add_export_goods_view.php" class="btn btn-primary">Tạo đơn xuất hàng</a>
-            </div>
+            <h1>Danh sách đơn nhập hàng chờ duyệt - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
         </header>
+
+        <!-- Thông báo -->
+        <?php if (isset($_GET['deleted']) && $_GET['deleted'] === 'success'): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                Xóa đơn chuyển kho thành công!
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        <?php if (isset($_GET['error'])): ?>
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                <?php echo htmlspecialchars($_GET['error']); ?>
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        <?php if (isset($_GET['approved']) && $_GET['approved'] === 'success'): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                Duyệt đơn chuyển kho thành công!
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
+        <?php if (isset($_GET['rejected']) && $_GET['rejected'] === 'success'): ?>
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                Từ chối đơn chuyển kho thành công!
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        <?php endif; ?>
 
         <!-- Filters -->
         <section class="filters">
-            <div class="tabs">
-                <button class="tab active">Tất cả</button>
-            </div>
             <div class="search-filter">
                 <form method="GET" action="">
-                    <input type="text" name="search" placeholder="Tìm kiếm theo mã đơn xuất, sản phẩm, nhân viên, shop nhập" value="<?php echo htmlspecialchars($search); ?>">
+                    <input type="text" name="search" placeholder="Tìm kiếm theo mã đơn, sản phẩm, nhân viên, shop nhập" value="<?php echo htmlspecialchars($search); ?>">
                     <button type="submit" class="btn btn-filter">Tìm kiếm</button>
                 </form>
             </div>
         </section>
 
-        <!-- Export Goods Table -->
-        <section class="export-goods-table">
+        <!-- Transfer Requests Table -->
+        <section class="transfer-requests-table">
             <table class="table table-bordered">
                 <thead>
                 <tr>
                     <th>Mã đơn</th>
-                    <th>Ngày tạo</th>
+                    <th>Ngày yêu cầu</th>
                     <th>Shop nhập</th>
                     <th>Nhân viên tạo</th>
                     <th>Sản phẩm</th>
-                    <th>Số lượng xuất</th>
-                    <th>Giá trị xuất</th>
+                    <th>Số lượng</th>
+                    <th>Ghi chú</th>
+                    <th>Hành động</th>
                 </tr>
                 </thead>
                 <tbody>
-                <?php if ($result_exports->num_rows > 0): ?>
-                    <?php while ($row = $result_exports->fetch_assoc()): ?>
+                <?php if ($result_transfers->num_rows > 0): ?>
+                    <?php while ($row = $result_transfers->fetch_assoc()): ?>
                         <tr>
-                            <td><a href="view_export_goods.php?id=<?php echo $row['id']; ?>">SRT<?php echo str_pad($row['id'], 5, '0', STR_PAD_LEFT); ?></a></td>
-                            <td><?php echo date('d/m/Y H:i', strtotime($row['export_date'])); ?></td>
+                            <td>TR<?php echo str_pad($row['id'], 5, '0', STR_PAD_LEFT); ?></td>
+                            <td><?php echo date('d/m/Y H:i', strtotime($row['transfer_date'])); ?></td>
                             <td><?php echo htmlspecialchars($row['to_shop_name'] ?? 'N/A'); ?></td>
-                            <td><?php echo htmlspecialchars($row['employee_name']); ?></td>
-                            <td><?php echo htmlspecialchars($row['product_name']); ?></td>
+                            <td><?php echo htmlspecialchars($row['user_name'] ?? 'N/A'); ?></td>
+                            <td><?php echo htmlspecialchars($row['product_name'] ?? 'N/A'); ?></td>
                             <td><?php echo $row['quantity']; ?></td>
-                            <td><?php echo number_format($row['total_price'], 0, ',', '.') . '₫'; ?></td>
+                            <td><?php echo htmlspecialchars($row['note'] ?? ''); ?></td>
+                            <td>
+                                <a href="../controllers/ProcessTransferController.php?action=approve&transfer_id=<?php echo $row['id']; ?>" class="btn btn-success btn-sm">Đồng ý</a>
+                                <a href="../controllers/ProcessTransferController.php?action=reject&transfer_id=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm">Từ chối</a>
+                                <a href="../controllers/ProcessTransferController.php?action=delete&transfer_id=<?php echo $row['id']; ?>" class="btn btn-secondary btn-sm" onclick="return confirm('Bạn có chắc chắn muốn xóa đơn chuyển kho TR<?php echo str_pad($row['id'], 5, '0', STR_PAD_LEFT); ?>?');"><i class="fas fa-trash"></i></a>
+                            </td>
                         </tr>
                     <?php endwhile; ?>
                 <?php else: ?>
                     <tr>
-                        <td colspan="7" class="text-center">Không có đơn xuất hàng nào.</td>
+                        <td colspan="8" class="text-center">Không có đơn nhập hàng nào chờ duyệt.</td>
                     </tr>
                 <?php endif; ?>
                 </tbody>
@@ -236,7 +269,7 @@ if ($result_exports === false) {
 
 <?php
 // Đóng kết nối
-$result_exports->free();
+$result_transfers->free();
 $conn->close();
 $conn_main->close();
 ?>

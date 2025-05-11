@@ -16,7 +16,14 @@ include_once '../models/OrderModel.php';
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
 
-$model = new OrderModel($host, $username, $password, $shop_db);
+// Kết nối database
+$conn = new mysqli($host, $username, $password, $shop_db);
+$conn_main = new mysqli($host, $username, $password, 'fashion_shopp');
+if ($conn->connect_error || $conn_main->connect_error) {
+    die("Lỗi kết nối cơ sở dữ liệu: " . $conn->connect_error);
+}
+$conn->set_charset("utf8mb4");
+$conn_main->set_charset("utf8mb4");
 
 $action = $_GET['action'] ?? '';
 
@@ -49,15 +56,20 @@ if ($action === 'add') {
             $calculated_total = 0;
             $valid_products = [];
             foreach ($products as $product) {
-                $product_id = intval($product['id']);
-                $quantity = intval($product['quantity']);
-                $unit_price = floatval($product['price']);
-                $discount_percent = floatval($product['discount'] ?? 0);
-                if ($quantity > 0) {
+                if (isset($product['selected']) && $product['selected'] == '1' && isset($product['quantity']) && $product['quantity'] > 0) {
+                    $product_id = intval($product['id']);
+                    $quantity = intval($product['quantity']);
+                    $unit_price = floatval($product['price']);
+                    $discount_percent = floatval($product['discount'] ?? 0);
                     $discount_amount = ($unit_price * $discount_percent) / 100;
                     $subtotal = ($unit_price - $discount_amount) * $quantity;
                     $calculated_total += $subtotal;
-                    $valid_products[$product_id] = $product;
+                    $valid_products[$product_id] = [
+                        'id' => $product_id,
+                        'quantity' => $quantity,
+                        'price' => $unit_price,
+                        'discount' => $discount_percent
+                    ];
                 }
             }
 
@@ -71,7 +83,10 @@ if ($action === 'add') {
         if (empty($errors)) {
             try {
                 $debug_messages[] = "Gọi addOrder với valid_products: " . json_encode($valid_products);
+                $model = new OrderModel($host, $username, $password, $shop_db);
                 $order_id = $model->addOrder($customer_id, $employee_id, $order_date, $total_price, $status, $valid_products);
+                $model->close();
+
                 $debug_messages[] = "Thêm hóa đơn thành công, order_id: $order_id";
                 $_SESSION['success'] = "Thêm hóa đơn thành công!";
                 $_SESSION['debug_messages'] = $debug_messages;
@@ -101,23 +116,28 @@ if ($action === 'add') {
 
 if ($action === 'update') {
     if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-        header("Location: ../view/order.php?error=" . urlencode("Không tìm thấy ID đơn hàng."));
+        $_SESSION['error'] = "Không tìm thấy ID đơn hàng.";
+        header("Location: ../view/order.php");
         exit();
     }
 
     $order_id = (int)$_GET['id'];
     try {
+        $model = new OrderModel($host, $username, $password, $shop_db);
         $order = $model->getOrderById($order_id);
         if (!$order) {
-            header("Location: ../view/order.php?error=" . urlencode("Đơn hàng không tồn tại."));
+            $_SESSION['error'] = "Đơn hàng không tồn tại.";
+            header("Location: ../view/order.php");
             exit();
         }
         $customers = $model->getCustomers();
         $users = $model->getUsers();
+        $model->close();
         include '../view/update_order_view.php';
         exit();
     } catch (Exception $e) {
-        header("Location: ../view/order.php?error=" . urlencode("Lỗi khi lấy thông tin đơn hàng: " . $e->getMessage()));
+        $_SESSION['error'] = "Lỗi khi lấy thông tin đơn hàng: " . $e->getMessage();
+        header("Location: ../view/order.php");
         exit();
     }
 }
@@ -147,8 +167,11 @@ if ($action === 'save_update') {
 
         if (empty($errors)) {
             try {
+                $model = new OrderModel($host, $username, $password, $shop_db);
                 $model->updateOrder($order_id, $customer_id, $employee_id, $order_date, $total_price, $status);
-                header("Location: ../view/order.php?updated=success");
+                $model->close();
+                $_SESSION['success'] = "Cập nhật hóa đơn thành công!";
+                header("Location: ../view/order.php");
                 exit();
             } catch (Exception $e) {
                 $_SESSION['form_errors'] = ["Lỗi khi cập nhật đơn hàng: " . $e->getMessage()];
@@ -167,27 +190,36 @@ if ($action === 'save_update') {
 
 if ($action === 'delete') {
     if (!isset($_GET['id']) || !is_numeric($_GET['id'])) {
-        header("Location: ../view/order.php?error=" . urlencode("Không tìm thấy ID đơn hàng."));
+        $_SESSION['error'] = "Không tìm thấy ID đơn hàng.";
+        header("Location: ../view/order.php");
         exit();
     }
 
     $order_id = (int)$_GET['id'];
     try {
+        $model = new OrderModel($host, $username, $password, $shop_db);
         $model->deleteOrder($order_id);
-        header("Location: ../view/order.php?order_deleted=success");
+        $model->close();
+        $_SESSION['success'] = "Xóa hóa đơn thành công!";
+        header("Location: ../view/order.php");
         exit();
     } catch (Exception $e) {
-        header("Location: ../view/order.php?error=" . urlencode("Lỗi khi xóa đơn hàng: " . $e->getMessage()));
+        $_SESSION['error'] = "Lỗi khi xóa đơn hàng: " . $e->getMessage();
+        header("Location: ../view/order.php");
         exit();
     }
 }
 
 try {
+    $model = new OrderModel($host, $username, $password, $shop_db);
     $orders = $model->getOrders();
+    $model->close();
 } catch (Exception $e) {
     $orders = [];
+    $_SESSION['error'] = "Lỗi khi lấy danh sách đơn hàng: " . $e->getMessage();
 }
 
-$model->close();
+$conn->close();
+$conn_main->close();
 include '../view/order.php';
 ?>
