@@ -12,6 +12,11 @@ error_log("CategoryController.php - Logged in: " . (isset($_SESSION['loggedin'])
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
+// Tắt hiển thị lỗi và bật ghi log
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', 'C:/xampp/php/logs/php_error_log');
+
 // Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
@@ -36,8 +41,24 @@ $model = new CategoryModel($host, $username, $password, $shop_db);
 // Xử lý các hành động
 $action = $_GET['action'] ?? '';
 
+if ($action === 'search') {
+    header('Content-Type: application/json; charset=utf-8');
+    $response = ['error' => '', 'categories' => []];
+    try {
+        $query = $_GET['query'] ?? '';
+        error_log("Bắt đầu tìm kiếm danh mục với query: " . $query);
+        $response['categories'] = $model->searchCategories($query);
+        error_log("Tìm kiếm danh mục hoàn tất, số danh mục: " . count($response['categories']));
+    } catch (Exception $e) {
+        $response['error'] = "Lỗi khi tìm kiếm danh mục: " . $e->getMessage();
+        error_log("Lỗi tìm kiếm danh mục: " . $e->getMessage());
+    }
+    $model->close();
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    exit();
+}
+
 if ($action === 'delete') {
-    // Xóa danh mục
     $category_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($category_id > 0) {
         try {
@@ -54,7 +75,6 @@ if ($action === 'delete') {
     $model->close();
     exit();
 } elseif ($action === 'update') {
-    // Cập nhật danh mục
     $category_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     $category = null;
 
@@ -72,18 +92,15 @@ if ($action === 'delete') {
         $errors[] = "ID danh mục không hợp lệ.";
     }
 
-    // Xử lý biểu mẫu cập nhật
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($errors)) {
         $name = trim($_POST['name'] ?? '');
 
-        // Kiểm tra dữ liệu đầu vào
         if (empty($name)) {
             $errors[] = "Tên danh mục không được để trống.";
         } elseif (strlen($name) > 100) {
             $errors[] = "Tên danh mục không được dài quá 100 ký tự.";
         }
 
-        // Cập nhật nếu không có lỗi
         if (empty($errors)) {
             try {
                 if ($model->updateCategory($category_id, $name)) {
@@ -98,7 +115,6 @@ if ($action === 'delete') {
         }
     }
 
-    // Lấy tên cửa hàng
     try {
         $shop_name = $model->getShopName('fashion_shopp', $shop_db);
     } catch (Exception $e) {
@@ -106,24 +122,20 @@ if ($action === 'delete') {
         $errors[] = "Không thể lấy tên cửa hàng.";
     }
 
-    // Tải View cập nhật
     include '../view/update_category_view.php';
     $model->close();
     exit();
 } elseif ($action === 'add') {
-    // Xử lý thêm danh mục
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
         $icon = $_FILES['icon'] ?? null;
 
-        // Kiểm tra dữ liệu đầu vào
         if (empty($name)) {
             $errors[] = "Tên danh mục không được để trống.";
         } elseif (strlen($name) > 100) {
             $errors[] = "Tên danh mục không được dài quá 100 ký tự.";
         }
 
-        // Xử lý tải lên icon
         $icon_path = null;
         if ($icon && $icon['error'] === UPLOAD_ERR_OK) {
             $allowed_types = ['image/png', 'image/jpeg', 'image/gif'];
@@ -148,7 +160,6 @@ if ($action === 'delete') {
             }
         }
 
-        // Thêm danh mục nếu không có lỗi
         if (empty($errors)) {
             try {
                 if ($model->addCategory($name, $icon_path)) {
@@ -163,7 +174,6 @@ if ($action === 'delete') {
         }
     }
 
-    // Lấy tên cửa hàng
     try {
         $shop_name = $model->getShopName('fashion_shopp', $shop_db);
     } catch (Exception $e) {
@@ -171,10 +181,8 @@ if ($action === 'delete') {
         $errors[] = "Không thể lấy tên cửa hàng.";
     }
 
-    // Tải View thêm danh mục
     include '../view/add_category_view.php';
 } else {
-    // Lấy tên cửa hàng
     try {
         $shop_name = $model->getShopName('fashion_shopp', $shop_db);
     } catch (Exception $e) {
@@ -182,11 +190,9 @@ if ($action === 'delete') {
         $errors[] = "Không thể lấy tên cửa hàng.";
     }
 
-    // Tải View thêm danh mục mặc định
     include '../view/add_category_view.php';
 }
 
-// Đóng kết nối
 $model->close();
 
 // Debug thời gian xử lý

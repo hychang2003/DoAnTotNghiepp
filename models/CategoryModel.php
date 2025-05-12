@@ -6,7 +6,6 @@ class CategoryModel {
     private $dbname;
     private $conn;
 
-    // Khởi tạo kết nối cơ sở dữ liệu
     public function __construct($host, $username, $password, $dbname) {
         $this->host = $host;
         $this->username = $username;
@@ -15,24 +14,21 @@ class CategoryModel {
         $this->connect();
     }
 
-    // Thiết lập kết nối với timeout
     private function connect() {
         $this->conn = new mysqli($this->host, $this->username, $this->password, $this->dbname);
         if ($this->conn->connect_error) {
             error_log("Lỗi kết nối đến cơ sở dữ liệu {$this->dbname}: " . $this->conn->connect_error);
-            die("Lỗi kết nối đến cơ sở dữ liệu: " . $this->conn->connect_error);
+            throw new Exception("Lỗi kết nối đến cơ sở dữ liệu: " . $this->conn->connect_error);
         }
         $this->conn->set_charset("utf8mb4");
-        // Thiết lập timeout để tránh lag
         $this->conn->query("SET SESSION wait_timeout = 30");
     }
 
-    // Lấy tên cửa hàng từ db_name
     public function getShopName($main_db, $shop_db) {
         $conn_main = new mysqli($this->host, $this->username, $this->password, $main_db);
         if ($conn_main->connect_error) {
             error_log("Lỗi kết nối đến cơ sở dữ liệu chính {$main_db}: " . $conn_main->connect_error);
-            die("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn_main->connect_error);
+            throw new Exception("Lỗi kết nối đến cơ sở dữ liệu chính: " . $conn_main->connect_error);
         }
         $conn_main->set_charset("utf8mb4");
 
@@ -40,7 +36,7 @@ class CategoryModel {
         $stmt = $conn_main->prepare($sql);
         if ($stmt === false) {
             error_log("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
-            die("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
+            throw new Exception("Lỗi chuẩn bị truy vấn name: " . $conn_main->error);
         }
         $stmt->bind_param('s', $shop_db);
         $stmt->execute();
@@ -55,7 +51,6 @@ class CategoryModel {
         return $shop_name;
     }
 
-    // Thêm danh mục mới
     public function addCategory($name, $icon_path) {
         $sql = "INSERT INTO category (name, icon) VALUES (?, ?)";
         $stmt = $this->conn->prepare($sql);
@@ -72,7 +67,6 @@ class CategoryModel {
         return $result;
     }
 
-    // Lấy danh sách danh mục
     public function getCategories() {
         $sql = "SELECT id, name, icon FROM category ORDER BY name ASC";
         $result = $this->conn->query($sql);
@@ -88,11 +82,31 @@ class CategoryModel {
         return $categories;
     }
 
-    // Xóa danh mục
+    public function searchCategories($query) {
+        $query = $this->conn->real_escape_string($query);
+        $sql = "SELECT id, name, icon FROM category WHERE name LIKE ? ORDER BY name ASC";
+        $stmt = $this->conn->prepare($sql);
+        if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn tìm kiếm danh mục: " . $this->conn->error);
+            throw new Exception("Lỗi chuẩn bị truy vấn tìm kiếm danh mục: " . $this->conn->error);
+        }
+        $searchTerm = $query . '%';
+        $stmt->bind_param('s', $searchTerm);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $categories = [];
+        while ($row = $result->fetch_assoc()) {
+            $row['icon_exists'] = !empty($row['icon']) && file_exists($_SERVER['DOCUMENT_ROOT'] . '/datn/' . $row['icon']);
+            $categories[] = $row;
+        }
+        $result->free();
+        $stmt->close();
+        return $categories;
+    }
+
     public function deleteCategory($category_id) {
         $this->conn->begin_transaction();
         try {
-            // Kiểm tra xem danh mục có sản phẩm liên quan không
             $sql_check_products = "SELECT COUNT(*) as product_count FROM product WHERE category_id = ?";
             $stmt_check_products = $this->conn->prepare($sql_check_products);
             if ($stmt_check_products === false) {
@@ -109,7 +123,6 @@ class CategoryModel {
                 throw new Exception("Không thể xóa danh mục vì vẫn còn $product_count sản phẩm thuộc danh mục này.");
             }
 
-            // Xóa danh mục
             $sql_delete = "DELETE FROM category WHERE id = ?";
             $stmt_delete = $this->conn->prepare($sql_delete);
             if ($stmt_delete === false) {
@@ -132,7 +145,6 @@ class CategoryModel {
         }
     }
 
-    // Lấy thông tin danh mục theo ID
     public function getCategoryById($category_id) {
         $sql = "SELECT id, name, icon FROM category WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
@@ -148,7 +160,6 @@ class CategoryModel {
         return $category;
     }
 
-    // Cập nhật danh mục
     public function updateCategory($category_id, $name) {
         $sql = "UPDATE category SET name = ? WHERE id = ?";
         $stmt = $this->conn->prepare($sql);
@@ -165,9 +176,10 @@ class CategoryModel {
         return $result;
     }
 
-    // Đóng kết nối
     public function close() {
-        $this->conn->close();
+        if ($this->conn) {
+            $this->conn->close();
+        }
     }
 }
 ?>

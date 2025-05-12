@@ -17,6 +17,7 @@ date_default_timezone_set('Asia/Ho_Chi_Minh');
 // Khởi tạo các biến
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 $session_username = $_SESSION['username'] ?? 'Khách';
+$role = $_SESSION['role'] ?? 'user';
 
 // Khởi tạo Model
 $model = new CategoryModel($host, $username, $password, $shop_db);
@@ -78,12 +79,12 @@ $model->close();
                 </ul>
             </li>
             <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if ($role === 'admin'): ?>
                 <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
-            <?php if ($_SESSION['role'] === 'admin'): ?>
+            <?php if ($role === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
                 <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
@@ -94,8 +95,8 @@ $model->close();
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
-                <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <input type="text" id="searchInput" class="form-control" placeholder="Tìm kiếm danh mục...">
+                <button id="searchBtn" class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -113,7 +114,7 @@ $model->close();
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh mục sản phẩm - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
+            <h1>Danh mục sản phẩm - Cơ sở: <?php echo htmlspecialchars($shop_name); ?> (DB: <?php echo htmlspecialchars($shop_db); ?>)</h1>
         </header>
 
         <!-- Thông báo -->
@@ -132,26 +133,29 @@ $model->close();
         <div class="card mt-3">
             <div class="card-body">
                 <h5 class="card-title">Danh sách danh mục</h5>
-                <?php if (empty($categories)): ?>
-                    <p>Chưa có danh mục sản phẩm nào.</p>
-                <?php else: ?>
-                    <table class="table table-bordered">
-                        <thead>
+                <a href="../controllers/CategoryController.php?action=add" class="btn btn-primary mb-3">Thêm danh mục</a>
+                <table class="table table-bordered" id="categoryTable">
+                    <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Tên danh mục</th>
+                        <th>Icon</th>
+                        <th>Hành động</th>
+                    </tr>
+                    </thead>
+                    <tbody id="categoryTableBody">
+                    <?php if (empty($categories)): ?>
                         <tr>
-                            <th>ID</th>
-                            <th>Tên danh mục</th>
-                            <th>Icon</th>
-                            <th>Hành động</th>
+                            <td colspan="4" class="text-center">Chưa có danh mục sản phẩm nào.</td>
                         </tr>
-                        </thead>
-                        <tbody>
+                    <?php else: ?>
                         <?php foreach ($categories as $category): ?>
                             <tr>
                                 <td><?php echo htmlspecialchars($category['id']); ?></td>
                                 <td><?php echo htmlspecialchars($category['name']); ?></td>
                                 <td>
-                                    <?php if (!empty($category['icon'])): ?>
-                                        <img src="../<?php echo htmlspecialchars($category['icon']); ?>" alt="Icon danh mục" width="50">
+                                    <?php if (!empty($category['icon']) && file_exists($_SERVER['DOCUMENT_ROOT'] . '/datn/' . $category['icon'])): ?>
+                                        <img src="/datn/<?php echo htmlspecialchars($category['icon']); ?>" alt="Icon danh mục" width="50">
                                     <?php else: ?>
                                         N/A
                                     <?php endif; ?>
@@ -162,10 +166,9 @@ $model->close();
                                 </td>
                             </tr>
                         <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                <?php endif; ?>
-                <a href="../controllers/CategoryController.php?action=add" class="btn btn-primary mt-3">Thêm danh mục</a>
+                    <?php endif; ?>
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -173,6 +176,66 @@ $model->close();
 
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const categoryTableBody = document.getElementById('categoryTableBody');
+
+        function searchCategories(query) {
+            console.log('Gửi yêu cầu tìm kiếm danh mục với query:', query);
+            fetch('../controllers/CategoryController.php?action=search&query=' + encodeURIComponent(query))
+                .then(response => {
+                    console.log('Phản hồi HTTP:', response.status, response.statusText);
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error('Phản hồi mạng không ổn: ' + response.statusText + ' - Nội dung: ' + text);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Dữ liệu nhận được:', data);
+                    categoryTableBody.innerHTML = '';
+                    if (data.error) {
+                        categoryTableBody.innerHTML = `<tr><td colspan="4" class="text-center">${data.error}</td></tr>`;
+                        console.error('Lỗi từ server:', data.error);
+                    } else if (data.categories && data.categories.length > 0) {
+                        data.categories.forEach(category => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                            <td>${category.id}</td>
+                            <td>${category.name}</td>
+                            <td>
+                                ${category.icon && category.icon_exists ? `<img src="/datn/${category.icon}" alt="Icon danh mục" width="50">` : 'N/A'}
+                            </td>
+                            <td>
+                                <a href="../controllers/CategoryController.php?action=update&id=${category.id}" class="btn btn-sm btn-primary">Sửa</a>
+                                <a href="../controllers/CategoryController.php?action=delete&id=${category.id}" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa danh mục này?');">Xóa</a>
+                            </td>
+                        `;
+                            categoryTableBody.appendChild(row);
+                        });
+                    } else {
+                        categoryTableBody.innerHTML = '<tr><td colspan="4" class="text-center">Không tìm thấy danh mục nào.</td></tr>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi tìm kiếm danh mục:', error);
+                    categoryTableBody.innerHTML = '<tr><td colspan="4" class="text-center">Lỗi khi tìm kiếm danh mục: ' + error.message + '</td></tr>';
+                });
+        }
+
+        searchBtn.addEventListener('click', () => {
+            const query = searchInput.value.trim();
+            searchCategories(query);
+        });
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchCategories(query);
+        });
+    });
+</script>
 </body>
 </html>
-?>
