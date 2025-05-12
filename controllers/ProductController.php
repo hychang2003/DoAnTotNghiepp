@@ -11,6 +11,11 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
 
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
+// Tắt hiển thị lỗi và bật ghi log
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', 'C:/xampp/php/logs/php_error_log');
+
 include_once '../config/db_connect.php';
 include_once '../models/ProductModel.php';
 
@@ -43,6 +48,23 @@ if ($conn_common->connect_error) {
 $model = new ProductModel($host, $username, $password, $shop_db);
 
 $action = $_GET['action'] ?? '';
+
+if ($action === 'search') {
+    header('Content-Type: application/json; charset=utf-8');
+    $response = ['error' => '', 'products' => []];
+    try {
+        $query = $_GET['query'] ?? '';
+        error_log("Bắt đầu tìm kiếm với query: " . $query);
+        $response['products'] = $model->searchProducts($query);
+        error_log("Tìm kiếm hoàn tất, số sản phẩm: " . count($response['products']));
+    } catch (Exception $e) {
+        $response['error'] = "Lỗi khi tìm kiếm sản phẩm: " . $e->getMessage();
+        error_log("Lỗi tìm kiếm sản phẩm: " . $e->getMessage());
+    }
+    $model->close();
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    exit();
+}
 
 if ($action === 'delete') {
     $product_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;

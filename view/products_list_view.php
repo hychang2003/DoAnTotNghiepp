@@ -148,8 +148,8 @@ if (isset($_SESSION['success_message'])) {
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
-                <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <input type="text" id="searchInput" class="form-control" placeholder="Tìm kiếm sản phẩm...">
+                <button id="searchBtn" class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -187,7 +187,7 @@ if (isset($_SESSION['success_message'])) {
                 <!-- Nút thêm sản phẩm -->
                 <a href="../controllers/ProductController.php" class="btn btn-primary mb-3">Thêm sản phẩm mới</a>
                 <!-- Bảng danh sách sản phẩm -->
-                <table class="table table-bordered">
+                <table class="table table-bordered" id="productTable">
                     <thead>
                     <tr>
                         <th>ID</th>
@@ -200,7 +200,7 @@ if (isset($_SESSION['success_message'])) {
                         <th>Hành động</th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="productTableBody">
                     <?php if (!empty($products)): ?>
                         <?php foreach ($products as $product): ?>
                             <tr>
@@ -253,5 +253,70 @@ if (isset($_SESSION['success_message'])) {
 
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const productTableBody = document.getElementById('productTableBody');
+
+        function searchProducts(query) {
+            console.log('Gửi yêu cầu tìm kiếm với query:', query);
+            fetch('../controllers/ProductController.php?action=search&query=' + encodeURIComponent(query))
+                .then(response => {
+                    console.log('Phản hồi HTTP:', response.status, response.statusText);
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error('Phản hồi mạng không ổn: ' + response.statusText + ' - Nội dung: ' + text);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Dữ liệu nhận được:', data);
+                    productTableBody.innerHTML = '';
+                    if (data.error) {
+                        productTableBody.innerHTML = `<tr><td colspan="8" class="text-center">${data.error}</td></tr>`;
+                        console.error('Lỗi từ server:', data.error);
+                    } else if (data.products && data.products.length > 0) {
+                        data.products.forEach(product => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                            <td>${product.id}</td>
+                            <td>${product.name}</td>
+                            <td>${Number(product.price).toLocaleString('vi-VN')}</td>
+                            <td>${product.quantity}</td>
+                            <td>${product.category_name || 'N/A'}</td>
+                            <td>
+                                <img src="${product.image && product.image_exists ? '/datn/' + product.image : '/datn/assets/images/default.png'}" alt="Hình ảnh sản phẩm" width="50">
+                            </td>
+                            <td>${product.flash_sale_name || 'Chưa áp dụng'}</td>
+                            <td>
+                                <a href="update_product_list.php?id=${product.id}" class="btn btn-sm btn-primary">Sửa</a>
+                                <a href="../controllers/ProductController.php?action=delete&id=${product.id}" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa sản phẩm này?');">Xóa</a>
+                            </td>
+                        `;
+                            productTableBody.appendChild(row);
+                        });
+                    } else {
+                        productTableBody.innerHTML = '<tr><td colspan="8" class="text-center">Không tìm thấy sản phẩm nào.</td></tr>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi tìm kiếm:', error);
+                    productTableBody.innerHTML = '<tr><td colspan="8" class="text-center">Lỗi khi tìm kiếm sản phẩm: ' + error.message + '</td></tr>';
+                });
+        }
+
+        searchBtn.addEventListener('click', () => {
+            const query = searchInput.value.trim();
+            searchProducts(query);
+        });
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchProducts(query);
+        });
+    });
+</script>
 </body>
 </html>

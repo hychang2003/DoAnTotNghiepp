@@ -182,11 +182,7 @@ $stmt_top_products->close();
     <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
-            <div class="input-group w-50">
-                <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
-            </div>
-            <div class="d-flex align-items-center">
+            <div class="d-flex align-items-center" style="margin-left: 70%">
                 <button id="attendanceBtn" class="btn btn-success me-2" onclick="recordAttendance()">Chấm Công</button>
                 <div class="dropdown">
                     <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">

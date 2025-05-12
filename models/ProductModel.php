@@ -5,7 +5,7 @@ class ProductModel {
     private $password;
     private $shop_dbname;
     private $conn;
-    private $conn_common; // Kết nối đến fashion_shopp để lấy shop_id và bảng chung
+    private $conn_common;
 
     public function __construct($host, $username, $password, $shop_dbname) {
         $this->host = $host;
@@ -88,7 +88,6 @@ class ProductModel {
     public function addProduct($name, $description, $image, $category_id, $type, $unit, $price, $cost_price, $quantity, $flash_sale_id = null) {
         $this->conn->begin_transaction();
         try {
-            // Thêm sản phẩm vào product của cơ sở hiện tại
             $sql = "INSERT INTO `$this->shop_dbname`.product (name, description, image, category_id, type, unit, price, cost_price, flash_sale_id) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmt = $this->conn->prepare($sql);
@@ -101,7 +100,6 @@ class ProductModel {
             $product_id = $this->conn->insert_id;
             $stmt->close();
 
-            // Thêm vào product_flash_sale nếu có
             if ($flash_sale_id && $this->isValidFlashSale($flash_sale_id)) {
                 $sql_flash_sale = "INSERT INTO `$this->shop_dbname`.product_flash_sale (product_id, flash_sale_id) VALUES (?, ?)";
                 $stmt_flash_sale = $this->conn->prepare($sql_flash_sale);
@@ -113,7 +111,6 @@ class ProductModel {
                 $stmt_flash_sale->close();
             }
 
-            // Thêm số lượng vào inventory
             $shop_id = $this->getShopId();
             $sql_inventory = "INSERT INTO `$this->shop_dbname`.inventory (product_id, shop_id, quantity, unit) VALUES (?, ?, ?, ?)";
             $stmt_inventory = $this->conn->prepare($sql_inventory);
@@ -150,7 +147,6 @@ class ProductModel {
     public function updateProduct($product_id, $name, $description, $image, $category_id, $type, $unit, $price, $cost_price, $quantity, $flash_sale_id = null) {
         $this->conn->begin_transaction();
         try {
-            // Cập nhật sản phẩm
             $sql = "UPDATE `$this->shop_dbname`.product 
                     SET name = ?, description = ?, image = ?, category_id = ?, type = ?, unit = ?, price = ?, cost_price = ?, flash_sale_id = ?
                     WHERE id = ?";
@@ -163,7 +159,6 @@ class ProductModel {
             $stmt->execute();
             $stmt->close();
 
-            // Cập nhật product_flash_sale
             $sql_delete_flash_sale = "DELETE FROM `$this->shop_dbname`.product_flash_sale WHERE product_id = ?";
             $stmt_delete_flash_sale = $this->conn->prepare($sql_delete_flash_sale);
             if ($stmt_delete_flash_sale === false) {
@@ -184,7 +179,6 @@ class ProductModel {
                 $stmt_flash_sale->close();
             }
 
-            // Cập nhật inventory
             $shop_id = $this->getShopId();
             $sql_inventory = "INSERT INTO `$this->shop_dbname`.inventory (product_id, shop_id, quantity, unit) 
                              VALUES (?, ?, ?, ?) 
@@ -247,6 +241,46 @@ class ProductModel {
                 'price' => floatval($row['price']),
                 'quantity' => intval($row['quantity'])
             ];
+        }
+        $result->free();
+        $stmt->close();
+        return $products;
+    }
+
+    public function searchProducts($query) {
+        $query = $this->conn->real_escape_string($query);
+        $sql = "SELECT p.id, p.name, p.price, p.image, p.category_id, p.flash_sale_id, 
+                       COALESCE(i.quantity, 0) AS quantity,
+                       c.name AS category_name, f.name AS flash_sale_name
+                FROM `$this->shop_dbname`.product p
+                LEFT JOIN `fashion_shopp`.category c ON p.category_id = c.id
+                LEFT JOIN `fashion_shopp`.flash_sale f ON p.flash_sale_id = f.id
+                LEFT JOIN `$this->shop_dbname`.inventory i ON p.id = i.product_id
+                WHERE p.name LIKE ? 
+                ORDER BY p.created_at DESC";
+        $stmt = $this->conn->prepare($sql);
+        if ($stmt === false) {
+            throw new Exception("Lỗi chuẩn bị truy vấn tìm kiếm: " . $this->conn->error);
+        }
+        $searchTerm = $query . '%';
+        $stmt->bind_param('s', $searchTerm);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $products = [];
+        while ($row = $result->fetch_assoc()) {
+            $image_paths = [
+                $_SERVER['DOCUMENT_ROOT'] . '/datn/' . $row['image'],
+                $_SERVER['DOCUMENT_ROOT'] . '/datn/images/' . basename($row['image'])
+            ];
+            $row['image_exists'] = false;
+            foreach ($image_paths as $path) {
+                if (file_exists($path)) {
+                    $row['image_exists'] = true;
+                    $row['image'] = str_replace($_SERVER['DOCUMENT_ROOT'] . '/datn/', '', $path);
+                    break;
+                }
+            }
+            $products[] = $row;
         }
         $result->free();
         $stmt->close();
