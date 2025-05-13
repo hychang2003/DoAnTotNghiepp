@@ -6,6 +6,10 @@ if (session_status() === PHP_SESSION_NONE) {
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', 'C:/xampp/php/logs/php_error_log');
+
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
 error_log("Bắt đầu EmployeeController.php. Session hiện tại: " . print_r($_SESSION, true));
@@ -15,7 +19,7 @@ include_once '../models/EmployeeModel.php';
 
 if ($conn->connect_error) {
     error_log("Lỗi kết nối cơ sở dữ liệu trong EmployeeController: " . $conn->connect_error);
-    if (isset($_GET['action']) && in_array($_GET['action'], ['record_attendance', 'check_attendance'])) {
+    if (isset($_GET['action']) && in_array($_GET['action'], ['record_attendance', 'check_attendance', 'search'])) {
         header('Content-Type: application/json');
         echo json_encode(['error' => 'Lỗi hệ thống: Không thể kết nối cơ sở dữ liệu.']);
         exit();
@@ -31,7 +35,7 @@ try {
     error_log("Khởi tạo EmployeeModel thành công với shop_db=$shop_db.");
 } catch (Exception $e) {
     error_log("Lỗi khởi tạo EmployeeModel: " . $e->getMessage());
-    if (isset($_GET['action']) && in_array($_GET['action'], ['record_attendance', 'check_attendance'])) {
+    if (isset($_GET['action']) && in_array($_GET['action'], ['record_attendance', 'check_attendance', 'search'])) {
         header('Content-Type: application/json');
         echo json_encode(['error' => 'Lỗi hệ thống: Không thể khởi tạo mô hình dữ liệu.']);
         exit();
@@ -42,6 +46,26 @@ try {
 
 $action = $_GET['action'] ?? '';
 error_log("Hành động được yêu cầu: $action");
+
+if ($action === 'search') {
+    header('Content-Type: application/json; charset=utf-8');
+    $response = ['error' => '', 'employees' => []];
+    try {
+        if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
+            throw new Exception("Bạn không có quyền tìm kiếm nhân viên.");
+        }
+        $query = $_GET['query'] ?? '';
+        error_log("Bắt đầu tìm kiếm nhân viên với query: " . $query);
+        $response['employees'] = $model->searchEmployees($query);
+        error_log("Tìm kiếm nhân viên hoàn tất, số nhân viên: " . count($response['employees']));
+    } catch (Exception $e) {
+        $response['error'] = "Lỗi khi tìm kiếm nhân viên: " . $e->getMessage();
+        error_log("Lỗi tìm kiếm nhân viên: " . $e->getMessage());
+    }
+    $model->close();
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    exit();
+}
 
 if ($action === 'record_attendance') {
     ini_set('display_errors', '0');

@@ -151,11 +151,7 @@ $result_transfers = $stmt_transfers->get_result();
 
     <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
-        <div class="container d-flex align-items-center justify-content-between">
-            <div class="input-group w-50">
-                <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
-            </div>
+        <div class="container d-flex align-items-center justify-content-between" style="margin-left: 70%">
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
@@ -200,16 +196,6 @@ $result_transfers = $stmt_transfers->get_result();
                 <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
             </div>
         <?php endif; ?>
-
-        <!-- Filters -->
-        <section class="filters">
-            <div class="search-filter">
-                <form method="GET" action="">
-                    <input type="text" name="search" placeholder="Tìm kiếm theo mã đơn, sản phẩm, nhân viên, shop nhập" value="<?php echo htmlspecialchars($search); ?>">
-                    <button type="submit" class="btn btn-filter">Tìm kiếm</button>
-                </form>
-            </div>
-        </section>
 
         <!-- Transfer Requests Table -->
         <section class="transfer-requests-table">

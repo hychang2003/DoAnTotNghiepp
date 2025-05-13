@@ -3,38 +3,30 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     error_log("Chuyển hướng đến login_view.php do không đăng nhập");
     header("Location: ../login_view.php");
     exit();
 }
 
-// Kiểm tra quyền admin
 if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'admin') {
     error_log("Chuyển hướng đến index.php do không phải admin");
     header("Location: ../index.php?error=access_denied");
     exit();
 }
 
-// Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Kết nối cơ sở dữ liệu và model
 include_once '../config/db_connect.php';
 include_once '../models/EmployeeModel.php';
 
-// Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 
-// Khởi tạo Model với cơ sở hiện tại
 $model = new EmployeeModel($host, $username, $password, $shop_db);
 
-// Lấy danh sách nhân viên
 try {
     $employees = $model->getEmployees();
 } catch (Exception $e) {
@@ -42,29 +34,31 @@ try {
     $employees = [];
 }
 
-// Lấy tên cửa hàng từ fashion_shopp
-$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
-if ($conn_common->connect_error) {
-    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+try {
+    $conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+    if ($conn_common->connect_error) {
+        error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+        $shop_name = $shop_db;
+    } else {
+        $conn_common->set_charset("utf8mb4");
+        $sql = "SELECT name FROM shop WHERE db_name = ?";
+        $stmt = $conn_common->prepare($sql);
+        $stmt->bind_param('s', $shop_db);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
+        $stmt->close();
+        $conn_common->close();
+    }
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
     $shop_name = $shop_db;
-} else {
-    $conn_common->set_charset("utf8mb4");
-    $sql = "SELECT name FROM shop WHERE db_name = ?";
-    $stmt = $conn_common->prepare($sql);
-    $stmt->bind_param('s', $shop_db);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
-    $stmt->close();
-    $conn_common->close();
 }
 
-// Đóng kết nối
 $model->close();
 
 $session_username = $_SESSION['username'] ?? 'Khách';
 
-// Debug
 error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_name");
 ?>
 
@@ -92,27 +86,27 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
-                    <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
+                    <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="inventory_stock_view.php">Tồn kho</a></li>
-                    <li><a href="../view/import_goods.php">Nhập hàng</a></li>
-                    <li><a href="../view/export_goods.php">Xuất hàng</a></li>
+                    <li><a href="import_goods.php">Nhập hàng</a></li>
+                    <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
@@ -121,8 +115,8 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
-                <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <input type="text" id="searchInput" class="form-control" placeholder="Tìm kiếm theo tên hoặc số điện thoại...">
+                <button id="searchBtn" class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -140,7 +134,7 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
     <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
-            <h1>Danh sách nhân viên - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
+            <h1>Danh sách nhân viên - Cơ sở: <?php echo htmlspecialchars($shop_name); ?> (DB: <?php echo htmlspecialchars($shop_db); ?>)</h1>
         </header>
 
         <!-- Thông báo -->
@@ -156,8 +150,8 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
 
         <div class="card mt-3">
             <div class="card-body">
-                <a href="../view/add_employee_view.php" class="btn btn-primary mb-3">Thêm nhân viên mới</a>
-                <table class="table table-bordered">
+                <a href="add_employee_view.php" class="btn btn-primary mb-3">Thêm nhân viên mới</a>
+                <table class="table table-bordered" id="employeeTable">
                     <thead>
                     <tr>
                         <th>ID</th>
@@ -169,7 +163,7 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
                         <th>Hành động</th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="employeeTableBody">
                     <?php if (!empty($employees)): ?>
                         <?php foreach ($employees as $employee): ?>
                             <tr>
@@ -188,7 +182,7 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
                         <?php endforeach; ?>
                     <?php else: ?>
                         <tr>
-                            <td colspan="7" class="text-center">Không có nhân划</td>
+                            <td colspan="7" class="text-center">Không có nhân viên nào.</td>
                         </tr>
                     <?php endif; ?>
                     </tbody>
@@ -196,8 +190,72 @@ error_log("employee.php: Using $shop_db for users/employee, shop_name = $shop_na
             </div>
         </div>
     </div>
+</div>
 
-    <script src="../assets/js/script.js"></script>
-    <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script src="../assets/js/script.js"></script>
+<script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const employeeTableBody = document.getElementById('employeeTableBody');
+
+        function searchEmployees(query) {
+            console.log('Gửi yêu cầu tìm kiếm nhân viên với query:', query);
+            fetch('../controllers/EmployeeController.php?action=search&query=' + encodeURIComponent(query))
+                .then(response => {
+                    console.log('Phản hồi HTTP:', response.status, response.statusText);
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error('Phản hồi mạng không ổn: ' + response.statusText + ' - Nội dung: ' + text);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Dữ liệu nhận được:', data);
+                    employeeTableBody.innerHTML = '';
+                    if (data.error) {
+                        employeeTableBody.innerHTML = `<tr><td colspan="7" class="text-center">${data.error}</td></tr>`;
+                        console.error('Lỗi từ server:', data.error);
+                    } else if (data.employees && data.employees.length > 0) {
+                        data.employees.forEach(employee => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                            <td>${employee.id}</td>
+                            <td>${employee.username}</td>
+                            <td>${employee.name}</td>
+                            <td>${employee.phone || 'Chưa cung cấp'}</td>
+                            <td>${employee.email || 'Chưa cung cấp'}</td>
+                            <td>${employee.role === 'admin' ? 'Quản trị viên' : 'Nhân viên'}</td>
+                            <td>
+                                <a href="../controllers/EmployeeController.php?action=update&id=${employee.id}" class="btn btn-sm btn-primary">Sửa</a>
+                                <a href="../controllers/EmployeeController.php?action=delete&id=${employee.id}" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa nhân viên này?');">Xóa</a>
+                                <a href="../controllers/EmployeeController.php?action=view_salary&id=${employee.id}" class="btn btn-sm btn-info">Xem lương</a>
+                            </td>
+                        `;
+                            employeeTableBody.appendChild(row);
+                        });
+                    } else {
+                        employeeTableBody.innerHTML = '<tr><td colspan="7" class="text-center">Không tìm thấy nhân viên nào.</td></tr>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi tìm kiếm nhân viên:', error);
+                    employeeTableBody.innerHTML = '<tr><td colspan="7" class="text-center">Lỗi khi tìm kiếm nhân viên: ' + error.message + '</td></tr>';
+                });
+        }
+
+        searchBtn.addEventListener('click', () => {
+            const query = searchInput.value.trim();
+            searchEmployees(query);
+        });
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchEmployees(query);
+        });
+    });
+</script>
 </body>
 </html>

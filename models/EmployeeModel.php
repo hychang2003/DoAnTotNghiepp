@@ -72,6 +72,36 @@ class EmployeeModel {
         return $employees;
     }
 
+    public function searchEmployees($query) {
+        error_log("Tìm kiếm nhân viên với query: $query trong {$this->shop_dbname}");
+        if (!$this->conn || $this->conn->connect_error) {
+            error_log("Lỗi: Kết nối cơ sở dữ liệu không khả dụng: " . $this->conn->connect_error);
+            throw new Exception("Kết nối cơ sở dữ liệu không khả dụng.");
+        }
+        $query = $this->conn->real_escape_string($query);
+        $sql = "SELECT id, username, role, name, email, phone_number AS phone 
+                FROM `$this->shop_dbname`.users 
+                WHERE role IN ('employee', 'admin') AND (name LIKE ? OR phone_number LIKE ?) 
+                ORDER BY username ASC";
+        $stmt = $this->conn->prepare($sql);
+        if ($stmt === false) {
+            error_log("Lỗi chuẩn bị truy vấn tìm kiếm nhân viên: " . $this->conn->error);
+            throw new Exception("Lỗi chuẩn bị truy vấn tìm kiếm nhân viên: " . $this->conn->error);
+        }
+        $searchTerm = $query . '%';
+        $stmt->bind_param('ss', $searchTerm, $searchTerm);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $employees = [];
+        while ($row = $result->fetch_assoc()) {
+            $employees[] = $row;
+        }
+        $result->free();
+        $stmt->close();
+        error_log("Tìm kiếm nhân viên thành công: " . count($employees) . " nhân viên.");
+        return $employees;
+    }
+
     public function getEmployeeById($employee_id) {
         error_log("Lấy thông tin nhân viên ID: $employee_id từ {$this->shop_dbname}");
         if (!$this->conn || $this->conn->connect_error) {
