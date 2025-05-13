@@ -1,139 +1,123 @@
 <?php
-include_once '../config/session_check.php';
-include_once '../config/db_connect.php';
-include_once '../models/CustomerModel.php';
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-// Debug session và thời gian xử lý
-$start_time = microtime(true);
-error_log("CustomerController.php - Session ID: " . session_id());
-error_log("CustomerController.php - Logged in: " . (isset($_SESSION['loggedin']) ? 'true' : 'false'));
-
-// Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', 'C:/xampp/php/logs/php_error_log');
+
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Khởi tạo các biến mặc định
-$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
-$errors = [];
-$success = '';
-$role = $_SESSION['role'] ?? '';
-$session_username = $_SESSION['username'] ?? 'Khách';
+error_log("Bắt đầu CustomerController.php. Session hiện tại: " . print_r($_SESSION, true));
 
-// Lấy tên cửa hàng từ fashion_shopp
-$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
-if ($conn_common->connect_error) {
-    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
-    $shop_name = $shop_db;
-} else {
-    $conn_common->set_charset("utf8mb4");
-    $sql = "SELECT name FROM shop WHERE db_name = ?";
-    $stmt = $conn_common->prepare($sql);
-    $stmt->bind_param('s', $shop_db);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
-    $stmt->close();
-    $conn_common->close();
+include_once '../config/db_connect.php';
+include_once '../models/CustomerModel.php';
+
+if ($conn->connect_error) {
+    error_log("Lỗi kết nối cơ sở dữ liệu trong CustomerController: " . $conn->connect_error);
+    if (isset($_GET['action']) && $_GET['action'] === 'search') {
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Lỗi hệ thống: Không thể kết nối cơ sở dữ liệu.']);
+        exit();
+    }
+    header("Location: ../index.php?error=" . urlencode("Lỗi kết nối cơ sở dữ liệu."));
+    exit();
+}
+error_log("Kết nối cơ sở dữ liệu được xác nhận trong CustomerController.");
+
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+try {
+    $model = new CustomerModel($host, $username, $password, $shop_db);
+    error_log("Khởi tạo CustomerModel thành công với shop_db=$shop_db.");
+} catch (Exception $e) {
+    error_log("Lỗi khởi tạo CustomerModel: " . $e->getMessage());
+    if (isset($_GET['action']) && $_GET['action'] === 'search') {
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Lỗi hệ thống: Không thể khởi tạo mô hình dữ liệu.']);
+        exit();
+    }
+    header("Location: ../index.php?error=" . urlencode("Lỗi khởi tạo mô hình dữ liệu."));
+    exit();
 }
 
-// Khởi tạo Model
-$model = new CustomerModel($host, $username, $password, $shop_db);
-
-// Debug
-error_log("CustomerController.php - Action: " . ($_GET['action'] ?? 'none') . ", shop_db: $shop_db, shop_name: $shop_name");
-
-// Xử lý các hành động
 $action = $_GET['action'] ?? '';
+error_log("Hành động được yêu cầu: $action");
+
+if ($action === 'search') {
+    header('Content-Type: application/json; charset=utf-8');
+    $response = ['error' => '', 'customers' => []];
+    try {
+        if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+            throw new Exception("Bạn cần đăng nhập để tìm kiếm khách hàng.");
+        }
+        $query = $_GET['query'] ?? '';
+        error_log("Bắt đầu tìm kiếm khách hàng với query: " . $query);
+        $response['customers'] = $model->searchCustomers($query);
+        error_log("Tìm kiếm khách hàng hoàn tất, số khách hàng: " . count($response['customers']));
+    } catch (Exception $e) {
+        $response['error'] = "Lỗi khi tìm kiếm khách hàng: " . $e->getMessage();
+        error_log("Lỗi tìm kiếm khách hàng: " . $e->getMessage());
+    }
+    $model->close();
+    echo json_encode($response, JSON_UNESCAPED_UNICODE);
+    exit();
+}
 
 if ($action === 'delete') {
-    // Xóa khách hàng
     $customer_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     if ($customer_id > 0) {
         try {
+            error_log("Xóa khách hàng ID: $customer_id trong $shop_db");
             $model->deleteCustomer($customer_id);
             header("Location: ../view/customer.php?customer_deleted=success");
         } catch (Exception $e) {
-            error_log("Lỗi xóa khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
+            error_log("Lỗi xóa khách hàng ID $customer_id: " . $e->getMessage());
             header("Location: ../view/customer.php?error=" . urlencode($e->getMessage()));
         }
     } else {
-        error_log("ID khách hàng không hợp lệ: $customer_id");
+        error_log("Lỗi xóa khách hàng: ID không hợp lệ ($customer_id)");
         header("Location: ../view/customer.php?error=" . urlencode("ID khách hàng không hợp lệ."));
     }
     $model->close();
     exit();
-} elseif ($action === 'update') {
-    // Cập nhật khách hàng
+}
+
+if ($action === 'update') {
     $customer_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     $customer = null;
 
     if ($customer_id > 0) {
         try {
+            error_log("Lấy thông tin khách hàng ID: $customer_id để cập nhật trong $shop_db");
             $customer = $model->getCustomerById($customer_id);
             if (!$customer) {
-                $errors[] = "Khách hàng không tồn tại.";
+                error_log("Không tìm thấy khách hàng ID: $customer_id");
+                header("Location: ../view/customer.php?error=" . urlencode("Khách hàng không tồn tại."));
+                exit();
             }
         } catch (Exception $e) {
-            error_log("Lỗi lấy khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
-            $errors[] = "Lỗi khi lấy thông tin khách hàng.";
+            error_log("Lỗi lấy thông tin khách hàng ID $customer_id: " . $e->getMessage());
+            header("Location: ../view/customer.php?error=" . urlencode("Lỗi khi lấy thông tin khách hàng."));
+            exit();
         }
     } else {
-        $errors[] = "ID khách hàng không hợp lệ.";
+        error_log("Lỗi cập nhật khách hàng: ID không hợp lệ ($customer_id)");
+        header("Location: ../view/customer.php?error=" . urlencode("ID khách hàng không hợp lệ."));
+        exit();
     }
 
-    // Xử lý biểu mẫu cập nhật
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($errors)) {
-        $name = trim($_POST['name'] ?? '');
-        $email = trim($_POST['email'] ?? '');
-        $phone_number = trim($_POST['phone_number'] ?? '');
-        $address = trim($_POST['address'] ?? '');
-
-        // Kiểm tra dữ liệu đầu vào
-        if (empty($name)) {
-            $errors[] = "Tên khách hàng không được để trống.";
-        } elseif (strlen($name) > 100) {
-            $errors[] = "Tên khách hàng không được dài quá 100 ký tự.";
-        }
-        if (empty($phone_number)) {
-            $errors[] = "Số điện thoại không được để trống.";
-        } elseif (!preg_match("/^[0-9]{10,11}$/", $phone_number)) {
-            $errors[] = "Số điện thoại phải có 10-11 số.";
-        }
-        if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = "Email không hợp lệ.";
-        }
-
-        // Cập nhật nếu không có lỗi
-        if (empty($errors)) {
-            try {
-                if ($model->updateCustomer($customer_id, $name, $email, $phone_number, $address)) {
-                    header("Location: ../view/customer.php?customer_updated=success");
-                } else {
-                    $errors[] = "Lỗi khi cập nhật khách hàng.";
-                }
-            } catch (Exception $e) {
-                error_log("Lỗi cập nhật khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
-                $errors[] = $e->getMessage();
-            }
-        }
-    }
-
-    // Tải View cập nhật
-    include '../view/update_customer_view.php';
-    $model->close();
-    exit();
-} elseif ($action === 'add') {
-    // Xử lý thêm khách hàng
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $name = trim($_POST['name'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $phone_number = trim($_POST['phone_number'] ?? '');
         $address = trim($_POST['address'] ?? '');
 
-        // Kiểm tra dữ liệu đầu vào
+        $errors = [];
+
         if (empty($name)) {
             $errors[] = "Tên khách hàng không được để trống.";
         } elseif (strlen($name) > 100) {
@@ -148,66 +132,128 @@ if ($action === 'delete') {
             $errors[] = "Email không hợp lệ.";
         }
 
-        // Thêm khách hàng nếu không có lỗi
         if (empty($errors)) {
             try {
+                error_log("Cập nhật khách hàng ID $customer_id: name=$name, email=$email, phone=$phone_number, address=$address trong $shop_db");
+                if ($model->updateCustomer($customer_id, $name, $email, $phone_number, $address)) {
+                    header("Location: ../view/customer.php?customer_updated=success");
+                } else {
+                    error_log("Cập nhật khách hàng ID $customer_id không thành công: Không có thay đổi dữ liệu");
+                    header("Location: ../view/update_customer_view.php?id=$customer_id&error=" . urlencode("Lỗi khi cập nhật khách hàng."));
+                }
+            } catch (Exception $e) {
+                error_log("Lỗi cập nhật khách hàng ID $customer_id: " . $e->getMessage());
+                header("Location: ../view/update_customer_view.php?id=$customer_id&error=" . urlencode($e->getMessage()));
+            }
+        } else {
+            error_log("Lỗi validation khi cập nhật khách hàng ID $customer_id: " . implode(", ", $errors));
+            $_SESSION['form_errors'] = $errors;
+            $_SESSION['form_data'] = $_POST;
+            header("Location: ../view/update_customer_view.php?id=$customer_id");
+        }
+    } else {
+        include '../view/update_customer_view.php';
+    }
+    $model->close();
+    exit();
+}
+
+if ($action === 'add') {
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        $name = trim($_POST['name'] ?? '');
+        $email = trim($_POST['email'] ?? '');
+        $phone_number = trim($_POST['phone_number'] ?? '');
+        $address = trim($_POST['address'] ?? '');
+
+        $errors = [];
+
+        if (empty($name)) {
+            $errors[] = "Tên khách hàng không được để trống.";
+        } elseif (strlen($name) > 100) {
+            $errors[] = "Tên khách hàng không được dài quá 100 ký tự.";
+        }
+        if (empty($phone_number)) {
+            $errors[] = "Số điện thoại không được để trống.";
+        } elseif (!preg_match("/^[0-9]{10,11}$/", $phone_number)) {
+            $errors[] = "Số điện thoại phải có 10-11 số.";
+        }
+        if (!empty($email) && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = "Email không hợp lệ.";
+        }
+
+        if (empty($errors)) {
+            try {
+                error_log("Thêm khách hàng: name=$name, phone=$phone_number, email=$email, address=$address trong $shop_db");
                 if ($model->addCustomer($name, $phone_number, $email, $address)) {
                     header("Location: ../view/customer.php?customer_added=success");
                 } else {
-                    $errors[] = "Lỗi khi thêm khách hàng.";
+                    error_log("Thêm khách hàng không thành công: Không có thay đổi dữ liệu");
+                    header("Location: ../view/add_customer_view.php?error=" . urlencode("Lỗi khi thêm khách hàng."));
                 }
             } catch (Exception $e) {
-                error_log("Lỗi thêm khách hàng vào $shop_db: " . $e->getMessage());
-                $errors[] = $e->getMessage();
+                error_log("Lỗi thêm khách hàng: " . $e->getMessage());
+                header("Location: ../view/add_customer_view.php?error=" . urlencode($e->getMessage()));
             }
+        } else {
+            error_log("Lỗi validation khi thêm khách hàng: " . implode(", ", $errors));
+            $_SESSION['form_errors'] = $errors;
+            $_SESSION['form_data'] = $_POST;
+            header("Location: ../view/add_customer_view.php");
         }
+    } else {
+        include '../view/add_customer_view.php';
     }
-
-    // Tải View thêm khách hàng
-    include '../view/add_customer_view.php';
     $model->close();
     exit();
-} elseif ($action === 'history') {
-    // Xem lịch sử mua hàng
+}
+
+if ($action === 'history') {
     $customer_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
     $customer = null;
     $history = [];
 
     if ($customer_id > 0) {
         try {
+            error_log("Lấy lịch sử mua hàng khách hàng ID: $customer_id trong $shop_db");
             $customer = $model->getCustomerById($customer_id);
             if (!$customer) {
-                $errors[] = "Khách hàng không tồn tại.";
-            } else {
-                $history = $model->getCustomerHistory($customer_id);
+                error_log("Không tìm thấy khách hàng ID: $customer_id");
+                header("Location: ../view/customer.php?error=" . urlencode("Khách hàng không tồn tại."));
+                exit();
             }
+            $history = $model->getCustomerHistory($customer_id);
         } catch (Exception $e) {
-            error_log("Lỗi lấy lịch sử khách hàng ID $customer_id từ $shop_db: " . $e->getMessage());
-            $errors[] = "Lỗi khi lấy thông tin lịch sử mua hàng.";
+            error_log("Lỗi lấy lịch sử khách hàng ID $customer_id: " . $e->getMessage());
+            header("Location: ../view/customer.php?error=" . urlencode("Lỗi khi lấy thông tin lịch sử mua hàng."));
         }
     } else {
-        $errors[] = "ID khách hàng không hợp lệ.";
+        error_log("Lỗi xem lịch sử: ID không hợp lệ ($customer_id)");
+        header("Location: ../view/customer.php?error=" . urlencode("ID khách hàng không hợp lệ."));
     }
 
-    // Tải View lịch sử
     include '../view/customer_history_view.php';
     $model->close();
     exit();
-} else {
-    // Lấy danh sách khách hàng
-    try {
-        $customers = $model->getCustomers();
-    } catch (Exception $e) {
-        error_log("Lỗi khi lấy danh sách khách hàng từ $shop_db: " . $e->getMessage());
-        $customers = [];
-    }
-
-    // Tải View danh sách khách hàng
-    include '../view/customer.php';
-    $model->close();
 }
 
-// Debug thời gian xử lý
-$end_time = microtime(true);
-error_log("CustomerController.php - Thời gian xử lý: " . ($end_time - $start_time) . " giây");
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    error_log("Chuyển hướng đến login_view.php do chưa đăng nhập.");
+    header("Location: ../login_view.php");
+    exit();
+}
+
+try {
+    error_log("Lấy danh sách khách hàng trong $shop_db.");
+    $customers = $model->getCustomers();
+    error_log("Lấy danh sách khách hàng thành công: " . count($customers) . " khách hàng.");
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy danh sách khách hàng: " . $e->getMessage());
+    $customers = [];
+}
+
+$model->close();
+error_log("Đóng kết nối CustomerModel.");
+
+include '../view/customer.php';
+error_log("Tải view customer.php thành công.");
 ?>

@@ -1,52 +1,59 @@
 <?php
-include_once '../config/session_check.php';
-include_once '../config/db_connect.php';
-include_once '../models/CustomerModel.php';
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-// Ngăn cache trình duyệt
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    error_log("Chuyển hướng đến login_view.php do không đăng nhập");
+    header("Location: ../login_view.php");
+    exit();
+}
+
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Khởi tạo các biến
+include_once '../config/db_connect.php';
+include_once '../models/CustomerModel.php';
+
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
-$session_username = $_SESSION['username'] ?? 'Khách';
 
-// Kết nối đến fashion_shopp để lấy tên cửa hàng
-$conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
-if ($conn_common->connect_error) {
-    error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
-    $shop_name = $shop_db;
-} else {
-    $conn_common->set_charset("utf8mb4");
-    $sql = "SELECT name FROM shop WHERE db_name = ?";
-    $stmt = $conn_common->prepare($sql);
-    $stmt->bind_param('s', $shop_db);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
-    $stmt->close();
-    $conn_common->close();
-}
-
-// Khởi tạo Model
 $model = new CustomerModel($host, $username, $password, $shop_db);
 
-// Lấy danh sách khách hàng
 try {
     $customers = $model->getCustomers();
 } catch (Exception $e) {
-    error_log("Lỗi khi lấy danh sách khách hàng từ $shop_db: " . $e->getMessage());
+    error_log("Lỗi khi lấy danh sách khách hàng: " . $e->getMessage());
     $customers = [];
 }
 
-// Đóng kết nối
+try {
+    $conn_common = new mysqli($host, $username, $password, 'fashion_shopp');
+    if ($conn_common->connect_error) {
+        error_log("Lỗi kết nối đến fashion_shopp: " . $conn_common->connect_error);
+        $shop_name = $shop_db;
+    } else {
+        $conn_common->set_charset("utf8mb4");
+        $sql = "SELECT name FROM shop WHERE db_name = ?";
+        $stmt = $conn_common->prepare($sql);
+        $stmt->bind_param('s', $shop_db);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $shop_name = ($result->num_rows > 0) ? $result->fetch_assoc()['name'] : $shop_db;
+        $stmt->close();
+        $conn_common->close();
+    }
+} catch (Exception $e) {
+    error_log("Lỗi khi lấy tên cửa hàng: " . $e->getMessage());
+    $shop_name = $shop_db;
+}
+
 $model->close();
 
-// Debug
-error_log("customer.php: Using shop_db = $shop_db, shop_name = $shop_name, customers_count = " . count($customers));
+$session_username = $_SESSION['username'] ?? 'Khách';
+
+error_log("customer.php: Using $shop_db for customer, shop_name = $shop_name");
 ?>
 
 <!DOCTYPE html>
@@ -102,8 +109,8 @@ error_log("customer.php: Using shop_db = $shop_db, shop_name = $shop_name, custo
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
-                <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <input type="text" id="searchInput" class="form-control" placeholder="Tìm kiếm theo tên hoặc số điện thoại...">
+                <button id="searchBtn" class="btn btn-primary"><i class="fa fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -127,18 +134,18 @@ error_log("customer.php: Using shop_db = $shop_db, shop_name = $shop_name, custo
         <!-- Thông báo -->
         <?php if (isset($_GET['customer_added']) && $_GET['customer_added'] === 'success'): ?>
             <div class="alert alert-success">Thêm khách hàng thành công!</div>
-        <?php endif; ?>
-        <?php if (isset($_GET['customer_deleted']) && $_GET['customer_deleted'] === 'success'): ?>
+        <?php elseif (isset($_GET['customer_deleted']) && $_GET['customer_deleted'] === 'success'): ?>
             <div class="alert alert-success">Xóa khách hàng thành công!</div>
-        <?php endif; ?>
-        <?php if (isset($_GET['error'])): ?>
+        <?php elseif (isset($_GET['customer_updated']) && $_GET['customer_updated'] === 'success'): ?>
+            <div class="alert alert-success">Cập nhật khách hàng thành công!</div>
+        <?php elseif (isset($_GET['error'])): ?>
             <div class="alert alert-danger"><?php echo htmlspecialchars($_GET['error']); ?></div>
         <?php endif; ?>
 
         <div class="card mt-3">
             <div class="card-body">
                 <a href="../controllers/CustomerController.php?action=add" class="btn btn-primary mb-3">Thêm khách hàng mới</a>
-                <table class="table table-bordered">
+                <table class="table table-bordered" id="customerTable">
                     <thead>
                     <tr>
                         <th>ID</th>
@@ -149,7 +156,7 @@ error_log("customer.php: Using shop_db = $shop_db, shop_name = $shop_name, custo
                         <th>Hành động</th>
                     </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="customerTableBody">
                     <?php if (!empty($customers)): ?>
                         <?php foreach ($customers as $customer): ?>
                             <tr>
@@ -179,5 +186,67 @@ error_log("customer.php: Using shop_db = $shop_db, shop_name = $shop_name, custo
 
 <script src="../assets/js/script.js"></script>
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const searchInput = document.getElementById('searchInput');
+        const searchBtn = document.getElementById('searchBtn');
+        const customerTableBody = document.getElementById('customerTableBody');
+
+        function searchCustomers(query) {
+            console.log('Gửi yêu cầu tìm kiếm khách hàng với query:', query);
+            fetch('../controllers/CustomerController.php?action=search&query=' + encodeURIComponent(query))
+                .then(response => {
+                    console.log('Phản hồi HTTP:', response.status, response.statusText);
+                    if (!response.ok) {
+                        return response.text().then(text => {
+                            throw new Error('Phản hồi mạng không ổn: ' + response.statusText + ' - Nội dung: ' + text);
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Dữ liệu nhận được:', data);
+                    customerTableBody.innerHTML = '';
+                    if (data.error) {
+                        customerTableBody.innerHTML = `<tr><td colspan="6" class="text-center">${data.error}</td></tr>`;
+                        console.error('Lỗi từ server:', data.error);
+                    } else if (data.customers && data.customers.length > 0) {
+                        data.customers.forEach(customer => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                            <td>${customer.id}</td>
+                            <td>${customer.name}</td>
+                            <td>${customer.phone_number || 'N/A'}</td>
+                            <td>${customer.email || 'N/A'}</td>
+                            <td>${customer.address || 'N/A'}</td>
+                            <td>
+                                <a href="../controllers/CustomerController.php?action=update&id=${customer.id}" class="btn btn-sm btn-primary">Sửa</a>
+                                <a href="../controllers/CustomerController.php?action=delete&id=${customer.id}" class="btn btn-sm btn-danger" onclick="return confirm('Bạn có chắc chắn muốn xóa khách hàng này?');">Xóa</a>
+                                <a href="../controllers/CustomerController.php?action=history&id=${customer.id}" class="btn btn-sm btn-info">Xem</a>
+                            </td>
+                        `;
+                            customerTableBody.appendChild(row);
+                        });
+                    } else {
+                        customerTableBody.innerHTML = '<tr><td colspan="6" class="text-center">Không tìm thấy khách hàng nào.</td></tr>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi tìm kiếm khách hàng:', error);
+                    customerTableBody.innerHTML = '<tr><td colspan="6" class="text-center">Lỗi khi tìm kiếm khách hàng: ' + error.message + '</td></tr>';
+                });
+        }
+
+        searchBtn.addEventListener('click', () => {
+            const query = searchInput.value.trim();
+            searchCustomers(query);
+        });
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            searchCustomers(query);
+        });
+    });
+</script>
 </body>
 </html>
