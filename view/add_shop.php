@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
         $result = $conn->query($sql_check_privileges);
         $has_create_privilege = false;
         while ($row = $result->fetch_array()) {
-            if (strpos($row[0], 'CREATE') !== false && (strpos($row[0], 'ALL PRIVILEGES') !== false || strpos($row[0], 'DATABASE') !== false)) {
+            if (strpos($row[0], 'ALL PRIVILEGES') !== false || strpos($row[0], 'CREATE') !== false) {
                 $has_create_privilege = true;
                 break;
             }
@@ -303,12 +303,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         product_id INT NOT NULL,
                         shop_id INT NOT NULL,
-                        quantity INT NOT NULL DEFAULT 0,
-                        unit VARCHAR(50) NOT NULL,
-                        last_updated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                        FOREIGN KEY (shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                        quantity INT NOT NULL,
+                        unit VARCHAR(50) DEFAULT NULL,
+                        UNIQUE KEY uk_product_shop (product_id, shop_id)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci";
                 if ($conn_new->query($sql_create_inventory) !== TRUE) {
                     $error_message = "Lỗi tạo bảng inventory trong $db_name: " . $conn_new->error;
                     error_log($error_message);
@@ -365,18 +363,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                         product_id INT NOT NULL,
                         from_shop_id INT NOT NULL,
                         to_shop_id INT NOT NULL,
+                        user_id INT NOT NULL,
                         quantity INT NOT NULL,
                         transfer_date DATETIME NOT NULL,
-                        employee_id INT NOT NULL,
+                        note TEXT DEFAULT NULL,
                         status ENUM('pending','completed','cancelled') NOT NULL DEFAULT 'pending',
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
                         FOREIGN KEY (from_shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE,
                         FOREIGN KEY (to_shop_id) REFERENCES fashion_shopp.shop(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
                 if ($conn_new->query($sql_create_transfer_stock) !== TRUE) {
                     $error_message = "Lỗi tạo bảng transfer_stock trong $db_name: " . $conn_new->error;
+                    error_log($error_message);
+                    $_SESSION['error'] = $error_message;
+                    header("Location: add_shop.php");
+                    exit();
+                }
+
+                $sql_create_transfer_stock_detail = "
+                    CREATE TABLE transfer_stock_detail (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        transfer_id INT NOT NULL,
+                        product_id INT NOT NULL,
+                        quantity INT NOT NULL,
+                        unit_price DECIMAL(10,2) NOT NULL,
+                        FOREIGN KEY (transfer_id) REFERENCES transfer_stock(id) ON DELETE CASCADE,
+                        FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
+                if ($conn_new->query($sql_create_transfer_stock_detail) !== TRUE) {
+                    $error_message = "Lỗi tạo bảng transfer_stock_detail trong $db_name: " . $conn_new->error;
                     error_log($error_message);
                     $_SESSION['error'] = $error_message;
                     header("Location: add_shop.php");
@@ -387,17 +404,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     CREATE TABLE import_goods (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         product_id INT NOT NULL,
-                        supplier_id INT NOT NULL,
+                        supplier_id INT DEFAULT NULL,
                         quantity INT NOT NULL,
                         unit_price DECIMAL(10,2) NOT NULL,
                         total_price DECIMAL(10,2) NOT NULL,
                         import_date DATETIME NOT NULL,
-                        employee_id INT NOT NULL,
+                        user_id INT NOT NULL,
                         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         transfer_id INT DEFAULT NULL,
                         FOREIGN KEY (product_id) REFERENCES product(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                        FOREIGN KEY (supplier_id) REFERENCES fashion_shopp.supplier(id) ON DELETE CASCADE ON UPDATE CASCADE,
-                        FOREIGN KEY (employee_id) REFERENCES employee(id) ON DELETE CASCADE ON UPDATE CASCADE,
+                        FOREIGN KEY (supplier_id) REFERENCES fashion_shopp.supplier(id) ON DELETE SET NULL ON UPDATE CASCADE,
+                        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
                         FOREIGN KEY (transfer_id) REFERENCES transfer_stock(id) ON DELETE SET NULL ON UPDATE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci";
                 if ($conn_new->query($sql_create_import_goods) !== TRUE) {
