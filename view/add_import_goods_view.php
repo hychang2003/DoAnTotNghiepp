@@ -1,9 +1,10 @@
 <?php
 // Ngăn truy cập trực tiếp vào View
-if (!isset($session_username)) {
-    header("Location: ../controllers/ImportGoodsController.php");
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+    header("Location: ../login_view.php");
     exit();
 }
+$session_username = $_SESSION['username'] ?? 'Khách';
 ?>
 
 <!DOCTYPE html>
@@ -14,7 +15,9 @@ if (!isset($session_username)) {
     <title>Tạo đơn nhập hàng - <?php echo htmlspecialchars($shop_name); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSB7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <!-- Fallback cục bộ cho Font Awesome -->
+    <link rel="stylesheet" href="../assets/fontawesome/css/all.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css';">
 </head>
 <body>
 <div id="main">
@@ -23,34 +26,34 @@ if (!isset($session_username)) {
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
         </div>
-        <button id="sidebarToggle"><i class="fa fa-arrow-left"></i></button>
+        <button id="sidebarToggle"><i class="fas fa-arrow-left"></i></button>
         <ul class="list-unstyled p-3">
-            <li><a href="../index.php"><i class="fa fa-chart-line"></i> Tổng quan</a></li>
+            <li><a href="../index.php"><i class="fas fa-chart-line"></i> Tổng quan</a></li>
             <li class="has-dropdown">
-                <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
+                <a href="#" id="productMenu"><i class="fas fa-box"></i> Sản phẩm <i class="fas fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
                     <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="../view/order.php"><i class="fas fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
-                <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
+                <a href="#" id="shopMenu"><i class="fas fa-store"></i> Quản lý shop <i class="fas fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="inventory_stock_view.php">Tồn kho</a></li>
                     <li><a href="../view/import_goods.php">Nhập hàng</a></li>
                     <li><a href="../view/export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="../view/customer.php"><i class="fas fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="../view/employee.php"><i class="fas fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="flash_sale_view.php"><i class="fas fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="report_view.php"><i class="fas fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="switch_shop_view.php"><i class="fas fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="../view/add_shop.php"><i class="fas fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
@@ -60,7 +63,7 @@ if (!isset($session_username)) {
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
                 <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <button class="btn btn-primary"><i class="fas fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -80,7 +83,7 @@ if (!isset($session_username)) {
         <header class="header">
             <h1>Tạo đơn nhập hàng - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
             <div class="actions">
-                <a href="import_goods.php" class="btn btn-secondary"><i class="fa fa-arrow-left me-1"></i> Quay lại</a>
+                <a href="../view/import_goods.php" class="btn btn-secondary"><i class="fas fa-arrow-left me-1"></i> Quay lại</a>
             </div>
         </header>
 
@@ -106,7 +109,7 @@ if (!isset($session_username)) {
                             <div class="card-body">
                                 <div class="product-search mb-3">
                                     <div class="input-group">
-                                        <span class="input-group-text"><i class="fa fa-search"></i></span>
+                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
                                         <input type="text" class="form-control" id="product-search" placeholder="Tìm theo tên">
                                     </div>
                                     <button type="button" class="btn btn-secondary mt-2" id="select-multiple">Chọn nhiều</button>
@@ -319,13 +322,13 @@ if (!isset($session_username)) {
                     response.products.forEach(product => {
                         const row = document.createElement('tr');
                         row.innerHTML = `
-                            <td><input type="checkbox" name="products[]" value="${product.id}" class="product-checkbox"></td>
-                            <td>${product.name}</td>
-                            <td>${product.quantity || 0}</td>
-                            <td><input type="number" name="quantities[]" min="0" value="0" class="form-control product-quantity"></td>
-                            <td><input type="number" name="unit_prices[]" min="0" value="${product.price}" class="form-control product-unit-price" data-price="${product.price}"></td>
-                            <td class="subtotal">0</td>
-                        `;
+                        <td><input type="checkbox" name="products[]" value="${product.id}" class="product-checkbox"></td>
+                        <td>${product.name}</td>
+                        <td>${product.quantity || 0}</td>
+                        <td><input type="number" name="quantities[]" min="0" value="0" class="form-control product-quantity"></td>
+                        <td><input type="number" name="unit_prices[]" min="0" value="${product.price}" class="form-control product-unit-price" data-price="${product.price}"></td>
+                        <td class="subtotal">0</td>
+                    `;
                         fragment.appendChild(row);
                     });
                 }

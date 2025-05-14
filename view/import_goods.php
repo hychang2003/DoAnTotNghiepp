@@ -1,23 +1,18 @@
 <?php
 session_start();
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../login_view.php");
     exit();
 }
 
-// Ngăn cache trình duyệt
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
 
-// Thiết lập múi giờ cho PHP
 date_default_timezone_set('Asia/Ho_Chi_Minh');
 
-// Bao gồm file kết nối cơ sở dữ liệu
 include '../config/db_connect.php';
 
-// Hàm lấy kết nối đến cơ sở dữ liệu
 function getConnection($host, $username, $password, $dbname) {
     $conn = new mysqli($host, $username, $password, $dbname);
     if ($conn->connect_error) {
@@ -27,15 +22,12 @@ function getConnection($host, $username, $password, $dbname) {
     return $conn;
 }
 
-// Lấy cơ sở hiện tại từ session
 $shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
 error_log("Shop DB: " . $shop_db);
 error_log("Session data: " . print_r($_SESSION, true));
 
-// Kết nối đến cơ sở dữ liệu chính
 $conn_main = getConnection($host, $username, $password, 'fashion_shopp');
 
-// Lấy thông tin shop hiện tại
 $sql_shop = "SELECT id, name FROM shop WHERE db_name = ?";
 $stmt_shop = $conn_main->prepare($sql_shop);
 if ($stmt_shop === false) {
@@ -48,10 +40,8 @@ $shop_row = $result_shop->fetch_assoc();
 $shop_name = $shop_row['name'] ?? $shop_db;
 $stmt_shop->close();
 
-// Kết nối đến cơ sở dữ liệu của shop hiện tại
 $conn = getConnection($host, $username, $password, $shop_db);
 
-// Lấy danh sách hóa đơn nhập
 $sql_imports = "SELECT ig.id, ig.import_date, ig.total_price, u.name AS user_name, COUNT(ig.product_id) AS product_count
                 FROM `$shop_db`.import_goods ig
                 JOIN `$shop_db`.users u ON ig.user_id = u.id
@@ -67,7 +57,6 @@ if ($result_imports === false) {
         $imports[] = $row;
     }
 }
-
 ?>
 
 <!DOCTYPE html>
@@ -82,7 +71,6 @@ if ($result_imports === false) {
 </head>
 <body>
 <div id="main">
-    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
@@ -94,32 +82,31 @@ if ($result_imports === false) {
                 <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
-                    <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
+                    <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
                 <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="inventory_stock_view.php">Tồn kho</a></li>
-                    <li><a href="../view/import_goods.php">Nhập hàng</a></li>
-                    <li><a href="../view/export_goods.php">Xuất hàng</a></li>
+                    <li><a href="import_goods.php">Nhập hàng</a></li>
+                    <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
             <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
             <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                 <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
 
-    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="dropdown" style="margin-left: 70%">
@@ -127,7 +114,7 @@ if ($result_imports === false) {
                     <img src="../img/avatar/avatar.png" alt="Avatar" class="rounded-circle me-2" width="40" height="40">
                     <span class="fw-bold"><?php echo htmlspecialchars($_SESSION['username'] ?? 'Khách'); ?></span>
                 </button>
-                <ul class="dropdown-menu dropdown-menu-end " aria-labelledby="userDropdown">
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
                     <li><a class="dropdown-item" href="#">Thông tin tài khoản</a></li>
                     <li><a class="dropdown-item" href="../logout.php">Đăng xuất</a></li>
                 </ul>
@@ -135,31 +122,26 @@ if ($result_imports === false) {
         </div>
     </div>
 
-    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
             <h1>Danh sách hóa đơn nhập - Cơ sở: <?php echo htmlspecialchars($shop_name); ?></h1>
             <div class="actions">
-                <?php error_log("Liên kết Thêm đơn nhập hàng: add_import_goods_view.php"); ?>
                 <a href="add_import_goods_view.php" class="btn btn-primary"><i class="fa fa-plus me-1"></i> Thêm đơn nhập hàng</a>
             </div>
         </header>
 
-        <!-- Thông báo lỗi -->
         <?php if (isset($error)): ?>
             <div class="alert alert-danger" role="alert">
                 <?php echo htmlspecialchars($error); ?>
             </div>
         <?php endif; ?>
 
-        <!-- Thông báo thành công -->
         <?php if (isset($_GET['import_added']) && $_GET['import_added'] === 'success'): ?>
             <div class="alert alert-success" role="alert">
                 Đơn nhập hàng đã được tạo thành công!
             </div>
         <?php endif; ?>
 
-        <!-- Danh sách hóa đơn nhập -->
         <section class="import-goods-list">
             <div class="card">
                 <div class="card-header">
@@ -205,7 +187,6 @@ if ($result_imports === false) {
 </div>
 
 <?php
-// Đóng kết nối
 if ($result_imports) {
     $result_imports->free();
 }
@@ -214,8 +195,8 @@ $conn_main->close();
 ?>
 
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
+<script src="../assets/js/script.js"></script>
 <script>
-    // Log khi nhấn nút Thêm đơn nhập hàng
     document.querySelector('a[href="add_import_goods_view.php"]').addEventListener('click', (e) => {
         console.log('Nhấn Thêm đơn nhập hàng');
     });

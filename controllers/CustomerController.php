@@ -242,18 +242,7 @@ if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     exit();
 }
 
-try {
-    error_log("Lấy danh sách khách hàng trong $shop_db.");
-    $customers = $model->getCustomers();
-    error_log("Lấy danh sách khách hàng thành công: " . count($customers) . " khách hàng.");
-} catch (Exception $e) {
-    error_log("Lỗi khi lấy danh sách khách hàng: " . $e->getMessage());
-    $customers = [];
-}
-
-$model->close();
-error_log("Đóng kết nối CustomerModel.");
-
-include '../view/customer.php';
-error_log("Tải view customer.php thành công.");
+// Nếu không có action cụ thể, chuyển hướng đến customer.php
+header("Location: ../view/customer.php");
+exit();
 ?>

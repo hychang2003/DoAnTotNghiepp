@@ -1,19 +1,16 @@
 <?php
 session_start();
 
-// Kiểm tra trạng thái đăng nhập
 if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
     header("Location: ../login_view.php");
     exit();
 }
 
-// Kiểm tra quyền truy cập
 if ($_SESSION['role'] !== 'admin') {
     header("Location: ../index.php?error=access_denied");
     exit();
 }
 
-// Kết nối database chính
 include '../config/db_connect.php';
 $conn = new mysqli($host, $username, $password, 'fashion_shopp');
 if ($conn->connect_error) {
@@ -25,7 +22,6 @@ if ($conn->connect_error) {
 }
 $conn->set_charset("utf8mb4");
 
-// Hàm kiểm tra bảng tồn tại
 function tableExists($conn, $db_name, $table_name) {
     $sql = "SELECT 1 FROM information_schema.tables WHERE table_schema = ? AND table_name = ?";
     $stmt = $conn->prepare($sql);
@@ -37,7 +33,6 @@ function tableExists($conn, $db_name, $table_name) {
     return $exists;
 }
 
-// Xử lý thêm cơ sở mới
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
     $name = trim($_POST['name'] ?? '');
     $address = trim($_POST['address'] ?? '');
@@ -45,7 +40,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
     if (empty($name) || empty($address)) {
         $_SESSION['error'] = "Vui lòng nhập đầy đủ tên và địa chỉ cơ sở!";
     } else {
-        // Kiểm tra quyền tạo cơ sở dữ liệu
         $sql_check_privileges = "SHOW GRANTS FOR CURRENT_USER";
         $result = $conn->query($sql_check_privileges);
         $has_create_privilege = false;
@@ -63,7 +57,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
             exit();
         }
 
-        // Kiểm tra các bảng chung trong fashion_shopp
         $required_tables = ['shop', 'category', 'supplier', 'flash_sale'];
         foreach ($required_tables as $table) {
             if (!tableExists($conn, 'fashion_shopp', $table)) {
@@ -75,7 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
             }
         }
 
-        // Thêm cơ sở vào bảng shop
         $sql = "INSERT INTO shop (name, address, db_name) VALUES (?, ?, '')";
         $stmt = $conn->prepare($sql);
         if ($stmt === false) {
@@ -90,7 +82,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
             $shop_id = $stmt->insert_id;
             $stmt->close();
 
-            // Tạo tên cơ sở dữ liệu (shop_ + shop_id)
             $db_name = "shop_$shop_id";
             $sql_update = "UPDATE shop SET db_name = ? WHERE id = ?";
             $stmt_update = $conn->prepare($sql_update);
@@ -105,10 +96,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
             $stmt_update->execute();
             $stmt_update->close();
 
-            // Tạo cơ sở dữ liệu mới
             $sql_create_db = "CREATE DATABASE IF NOT EXISTS `$db_name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
             if ($conn->query($sql_create_db) === TRUE) {
-                // Kết nối đến cơ sở dữ liệu mới
                 $conn_new = new mysqli($host, $username, $password, $db_name);
                 if ($conn_new->connect_error) {
                     $error_message = "Lỗi kết nối cơ sở dữ liệu $db_name: " . $conn_new->connect_error;
@@ -119,7 +108,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                 }
                 $conn_new->set_charset("utf8mb4");
 
-                // Tạo bảng users
                 $sql_create_users = "
                     CREATE TABLE users (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -142,7 +130,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng employee
                 $sql_create_employee = "
                     CREATE TABLE employee (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -160,7 +147,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng employee_salary
                 $sql_create_employee_salary = "
                     CREATE TABLE employee_salary (
                         employee_id INT NOT NULL,
@@ -182,7 +168,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng attendance
                 $sql_create_attendance = "
                     CREATE TABLE attendance (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -198,7 +183,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng customer
                 $sql_create_customer = "
                     CREATE TABLE customer (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -218,7 +202,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng product
                 $sql_create_product = "
                     CREATE TABLE product (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -243,7 +226,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng product_flash_sale
                 $sql_create_product_flash_sale = "
                     CREATE TABLE product_flash_sale (
                         product_id INT NOT NULL,
@@ -260,7 +242,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng image_product
                 $sql_create_image_product = "
                     CREATE TABLE image_product (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -277,7 +258,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng product_option
                 $sql_create_product_option = "
                     CREATE TABLE product_option (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -298,7 +278,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng customer_purchase
                 $sql_create_customer_purchase = "
                     CREATE TABLE customer_purchase (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -319,7 +298,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng inventory
                 $sql_create_inventory = "
                     CREATE TABLE inventory (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -339,7 +317,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng order
                 $sql_create_order = "
                     CREATE TABLE `order` (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -360,7 +337,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng order_detail
                 $sql_create_order_detail = "
                     CREATE TABLE order_detail (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -383,7 +359,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng transfer_stock
                 $sql_create_transfer_stock = "
                     CREATE TABLE transfer_stock (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -408,7 +383,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng import_goods
                 $sql_create_import_goods = "
                     CREATE TABLE import_goods (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -434,7 +408,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng export_goods
                 $sql_create_export_goods = "
                     CREATE TABLE export_goods (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -459,7 +432,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng report
                 $sql_create_report = "
                     CREATE TABLE report (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -480,7 +452,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
                     exit();
                 }
 
-                // Tạo bảng promotion
                 $sql_create_promotion = "
                     CREATE TABLE promotion (
                         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -520,7 +491,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_shop'])) {
     }
 }
 
-// Đóng kết nối nếu tồn tại
 if (isset($conn) && $conn instanceof mysqli) {
     $conn->close();
 }
@@ -535,52 +505,52 @@ if (isset($conn) && $conn instanceof mysqli) {
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSB7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <!-- Fallback cục bộ cho Font Awesome -->
+    <link rel="stylesheet" href="../assets/fontawesome/css/all.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css';">
 </head>
 <body>
 <div id="main">
-    <!-- Sidebar -->
     <div id="sidebar" class="shadow">
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
         </div>
-        <button id="sidebarToggle"><i class="fa fa-arrow-left"></i></button>
+        <button id="sidebarToggle"><i class="fas fa-arrow-left"></i></button>
         <ul class="list-unstyled p-3">
-            <li><a href="../index.php"><i class="fa fa-chart-line"></i> Tổng quan</a></li>
+            <li><a href="../index.php"><i class="fas fa-chart-line"></i> Tổng quan</a></li>
             <li class="has-dropdown">
-                <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
+                <a href="#" id="productMenu"><i class="fas fa-box"></i> Sản phẩm <i class="fas fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
                     <li><a href="../view/product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="../view/order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="../view/order.php"><i class="fas fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
-                <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
+                <a href="#" id="shopMenu"><i class="fas fa-store"></i> Quản lý shop <i class="fas fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="inventory_stock_view.php">Tồn kho</a></li>
                     <li><a href="../view/import_goods.php">Nhập hàng</a></li>
                     <li><a href="../view/export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="../view/customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="../view/customer.php"><i class="fas fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="../view/employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="../view/employee.php"><i class="fas fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="../controllers/FlashSaleController.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="../view/report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="../view/flash_sale_view.php"><i class="fas fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="../view/report_view.php"><i class="fas fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="../view/add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="switch_shop_view.php"><i class="fas fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="../view/add_shop.php"><i class="fas fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
 
-    <!-- Header -->
     <div id="header" class="bg-light py-2 shadow-sm">
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
                 <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <button class="btn btn-primary"><i class="fas fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -595,13 +565,11 @@ if (isset($conn) && $conn instanceof mysqli) {
         </div>
     </div>
 
-    <!-- Nội dung chính -->
     <div class="content">
         <header class="header">
             <h1>Thêm cơ sở mới</h1>
         </header>
 
-        <!-- Thông báo -->
         <?php if (isset($_SESSION['error'])): ?>
             <div class="alert alert-danger" role="alert">
                 <?php echo htmlspecialchars($_SESSION['error']); ?>
@@ -613,7 +581,6 @@ if (isset($conn) && $conn instanceof mysqli) {
             </div>
         <?php endif; ?>
 
-        <!-- Form thêm cơ sở -->
         <div class="card mt-3">
             <div class="card-body">
                 <form method="POST" action="">

@@ -1,10 +1,34 @@
 <?php
 include_once '../config/session_check.php';
-include_once '../controllers/CustomerController.php';
+include_once '../config/db_connect.php';
+include_once '../models/CustomerModel.php';
 
 // Debug session
 error_log("update_customer_view.php - Session ID: " . session_id());
 error_log("update_customer_view.php - Logged in: " . (isset($_SESSION['loggedin']) ? 'true' : 'false'));
+
+$shop_db = $_SESSION['shop_db'] ?? 'fashion_shopp';
+$model = new CustomerModel($host, $username, $password, $shop_db);
+
+$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$customer = null;
+$errors = [];
+
+if ($id > 0) {
+    try {
+        $customer = $model->getCustomerById($id);
+        if (!$customer) {
+            $errors[] = "Khách hàng không tồn tại.";
+        }
+    } catch (Exception $e) {
+        error_log("Lỗi lấy thông tin khách hàng ID $id: " . $e->getMessage());
+        $errors[] = "Lỗi khi lấy thông tin khách hàng.";
+    }
+} else {
+    $errors[] = "ID khách hàng không hợp lệ.";
+}
+
+$model->close();
 ?>
 
 <!DOCTYPE html>
@@ -15,7 +39,8 @@ error_log("update_customer_view.php - Logged in: " . (isset($_SESSION['loggedin'
     <title>Cập nhật khách hàng - <?php echo htmlspecialchars($shop_name ?? 'Cửa hàng mặc định'); ?></title>
     <link rel="stylesheet" href="../assets/css/style.css">
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSB7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="../assets/fontawesome/css/all.min.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css';">
 </head>
 <body>
 <div id="main">
@@ -24,34 +49,34 @@ error_log("update_customer_view.php - Logged in: " . (isset($_SESSION['loggedin'
         <div class="logo">
             <img src="../img/logo/logo.png" alt="Logo">
         </div>
-        <button id="sidebarToggle"><i class="fa fa-arrow-left"></i></button>
+        <button id="sidebarToggle"><i class="fas fa-arrow-left"></i></button>
         <ul class="list-unstyled p-3">
-            <li><a href="../index.php"><i class="fa fa-chart-line"></i> Tổng quan</a></li>
+            <li><a href="../index.php"><i class="fas fa-chart-line"></i> Tổng quan</a></li>
             <li class="has-dropdown">
-                <a href="#" id="productMenu"><i class="fa fa-box"></i> Sản phẩm <i class="fa fa-chevron-down ms-auto"></i></a>
+                <a href="#" id="productMenu"><i class="fas fa-box"></i> Sản phẩm <i class="fas fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="products_list_view.php">Danh sách sản phẩm</a></li>
                     <li><a href="product_category.php">Danh mục sản phẩm</a></li>
                 </ul>
             </li>
-            <li><a href="order.php"><i class="fa fa-file-invoice-dollar"></i> Hóa đơn</a></li>
+            <li><a href="order.php"><i class="fas fa-file-invoice-dollar"></i> Hóa đơn</a></li>
             <li class="has-dropdown">
-                <a href="#" id="shopMenu"><i class="fa fa-store"></i> Quản lý shop <i class="fa fa-chevron-down ms-auto"></i></a>
+                <a href="#" id="shopMenu"><i class="fas fa-store"></i> Quản lý shop <i class="fas fa-chevron-down ms-auto"></i></a>
                 <ul class="sidebar-dropdown-menu">
                     <li><a href="inventory_stock_view.php">Tồn kho</a></li>
                     <li><a href="import_goods.php">Nhập hàng</a></li>
                     <li><a href="export_goods.php">Xuất hàng</a></li>
                 </ul>
             </li>
-            <li><a href="customer.php"><i class="fa fa-users"></i> Khách hàng</a></li>
+            <li><a href="../view/customer.php"><i class="fas fa-users"></i> Khách hàng</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="employee.php"><i class="fa fa-user-tie"></i> Nhân viên</a></li>
+                <li><a href="employee.php"><i class="fas fa-user-tie"></i> Nhân viên</a></li>
             <?php endif; ?>
-            <li><a href="flash_sale_view.php"><i class="fa fa-tags"></i> Khuyến mại</a></li>
-            <li><a href="report_view.php"><i class="fa fa-chart-bar"></i> Báo cáo</a></li>
+            <li><a href="flash_sale_view.php"><i class="fas fa-tags"></i> Khuyến mại</a></li>
+            <li><a href="report_view.php"><i class="fas fa-chart-bar"></i> Báo cáo</a></li>
             <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
-                <li><a href="switch_shop_view.php"><i class="fa fa-exchange-alt"></i> Switch Cơ Sở</a></li>
-                <li><a href="add_shop.php"><i class="fa fa-plus-circle"></i> Thêm Cơ Sở</a></li>
+                <li><a href="switch_shop_view.php"><i class="fas fa-exchange-alt"></i> Switch Cơ Sở</a></li>
+                <li><a href="add_shop.php"><i class="fas fa-plus-circle"></i> Thêm Cơ Sở</a></li>
             <?php endif; ?>
         </ul>
     </div>
@@ -61,7 +86,7 @@ error_log("update_customer_view.php - Logged in: " . (isset($_SESSION['loggedin'
         <div class="container d-flex align-items-center justify-content-between">
             <div class="input-group w-50">
                 <input type="text" class="form-control" placeholder="Tìm kiếm...">
-                <button class="btn btn-primary"><i class="fa fa-search"></i></button>
+                <button class="btn btn-primary"><i class="fas fa-search"></i></button>
             </div>
             <div class="dropdown">
                 <button class="btn btn-outline-secondary dropdown-toggle" type="button" id="userDropdown" data-bs-toggle="dropdown" aria-expanded="false">
@@ -113,11 +138,11 @@ error_log("update_customer_view.php - Logged in: " . (isset($_SESSION['loggedin'
                             <textarea class="form-control" id="address" name="address"><?php echo htmlspecialchars($customer['address'] ?? ''); ?></textarea>
                         </div>
                         <button type="submit" class="btn btn-primary">Cập nhật khách hàng</button>
-                        <a href="customer.php" class="btn btn-secondary">Quay lại</a>
+                        <a href="../view/customer.php" class="btn btn-secondary">Quay lại</a>
                     </form>
                 <?php else: ?>
                     <p>Không thể tải thông tin khách hàng để chỉnh sửa.</p>
-                    <a href="customer.php" class="btn btn-secondary">Quay lại</a>
+                    <a href="../view/customer.php" class="btn btn-secondary">Quay lại</a>
                 <?php endif; ?>
             </div>
         </div>
@@ -128,4 +153,3 @@ error_log("update_customer_view.php - Logged in: " . (isset($_SESSION['loggedin'
 <script src="../assets/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
-?>
